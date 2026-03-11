@@ -19,6 +19,8 @@ export default function ReviewPage() {
   const [phase, setPhase] = useState('loading');
   const [airtableId, setAirtableId] = useState(null);
   const [tableOpen, setTableOpen] = useState(false);
+  const [extractedMenu, setExtractedMenu] = useState(null);
+  const [nutritionData, setNutritionData] = useState(null);
 
   useEffect(() => { if (!runId) return; fetchRecord(); }, [runId]);
   useEffect(() => { setTableOpen(false); }, [currentIndex]);
@@ -39,6 +41,12 @@ export default function ReviewPage() {
       let mj = null;
       try { mj = JSON.parse(rec.fields.meals_json); } catch(e) {}
       setMealsJson(mj);
+      let em = null;
+      try { em = typeof rec.fields.extracted_menu === 'string' ? JSON.parse(rec.fields.extracted_menu) : rec.fields.extracted_menu; } catch(e) {}
+      setExtractedMenu(em);
+      let nd = null;
+      try { nd = typeof rec.fields.nutrition_data === 'string' ? JSON.parse(rec.fields.nutrition_data) : rec.fields.nutrition_data; } catch(e) {}
+      setNutritionData(nd);
       const mealList = [];
       const mealData = calc.meals || {};
       Object.entries(mealData).forEach(([day, dayMeals]) => {
@@ -234,11 +242,40 @@ export default function ReviewPage() {
   const isModeA = modeRaw.toLowerCase().includes('mode a');
   const isModeB = modeRaw.toLowerCase().includes('mode b');
   const parsed = parseHerleitung(herleitung);
-  const allIngredients = [
+  // Build ingredient table from raw recipe data (extracted_menu + nutrition_data)
+  function buildRecipeIngredients(day, type) {
+    if (!extractedMenu || !nutritionData) return [];
+    const dishData = extractedMenu?.[day]?.[type];
+    if (!dishData) return [];
+    const ingredientStr = dishData.ingredients || '';
+    // Parse "Name Xg (original: Y) | Name Xg | ..."
+    return ingredientStr.split('|').map(part => {
+      const p = part.trim();
+      // Match: "Ingredient Name 1234g" optionally followed by "(original: ...)"
+      const match = p.match(/^(.+?)\s+([\d.]+)\s*g/);
+      if (!match) return null;
+      const name = match[1].trim();
+      const weight = parseFloat(match[2]);
+      // Look up carbs in nutritionData — try exact match then fuzzy
+      const key = Object.keys(nutritionData).find(k =>
+        name.toLowerCase().includes(k.toLowerCase()) ||
+        k.toLowerCase().includes(name.toLowerCase().split(' ')[0])
+      );
+      const per100 = key ? nutritionData[key].carbs_per_100g : null;
+      const totalCarb = per100 !== null ? Math.round((weight * per100 / 100) * 10) / 10 : null;
+      return { name, weight, per100, total: totalCarb, free: per100 === 0 || per100 === null };
+    }).filter(Boolean);
+  }
+
+  const recipeIngredients = buildRecipeIngredients(meal.day, meal.type);
+  const useRecipeTable = recipeIngredients.length > 0;
+
+  const allIngredients = useRecipeTable ? recipeIngredients : [
     ...carbFoods.map(f => ({ name: f.food, weight: f.portion_g, per100: f.carbs_per_100g, total: f.carbs_g, free: false })),
     ...freeFoods.map(f => ({ name: f.food, weight: f.portion_g, per100: null, total: null, free: true })),
   ];
   const totalWeight = allIngredients.reduce((s, i) => s + (i.weight || 0), 0);
+  const tableTotal = allIngredients.reduce((s, i) => s + (i.total || 0), 0);
 
   return (
     <div style={S.page}>
@@ -389,15 +426,15 @@ export default function ReviewPage() {
                         <tr key={i}>
                           <td style={S.td}>{ing.name}</td>
                           <td style={S.tdRight}>{ing.weight}g</td>
-                          <td style={ing.free ? {...S.tdRight, color:'#9ca3af'} : S.tdRight}>{ing.free ? '—' : `${ing.per100}g`}</td>
-                          <td style={ing.free ? S.tdFree : S.tdCarbs}>{ing.free ? 'free' : `${roundCarbs(ing.total)}g`}</td>
+                          <td style={ing.per100 === null ? {...S.tdRight, color:'#9ca3af'} : S.tdRight}>{ing.per100 === null ? '—' : `${ing.per100}g`}</td>
+                          <td style={ing.total === null ? S.tdFree : (ing.total === 0 ? S.tdFree : S.tdCarbs)}>{ing.total === null ? '?' : ing.total === 0 ? 'free' : `${roundCarbs(ing.total)}g`}</td>
                         </tr>
                       ))}
                       <tr>
                         <td style={S.tdTotalLabel}>Total</td>
                         <td style={S.tdTotalRight}>{totalWeight}g</td>
                         <td style={S.tdTotalRight}></td>
-                        <td style={S.tdTotalCarbs}>{roundCarbs(totalCarbs)}g</td>
+                        <td style={S.tdTotalCarbs}>{roundCarbs(useRecipeTable ? tableTotal : totalCarbs)}g</td>
                       </tr>
                     </tbody>
                   </table>
