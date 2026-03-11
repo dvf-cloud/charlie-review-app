@@ -242,17 +242,22 @@ export default function ReviewPage() {
   const isModeA = modeRaw.toLowerCase().includes('mode a');
   const isModeB = modeRaw.toLowerCase().includes('mode b');
   const parsed = parseHerleitung(herleitung);
-  // Free vegetable list — these are always carb-free regardless of carb content
-  const FREE_VEGETABLES = [
+  // Free foods — always carb-free (vegetables + eggs + protein items)
+  const FREE_FOODS_LIST = [
+    // Vegetables
     'erbsen', 'karotten', 'gurken', 'gurke', 'karotte', 'tomaten', 'tomate',
     'brokkoli', 'blumenkohl', 'auberginen', 'aubergine', 'lauch', 'fenchel',
     'nüsslisalat', 'gemüsesticks', 'gemüse', 'paprika', 'zwiebeln', 'zwiebel',
-    'spinat', 'zucchini', 'sellerie', 'rüebli'
+    'spinat', 'zucchini', 'sellerie', 'rüebli', 'randen', 'blattsalat',
+    // Protein / fat (negligible carbs)
+    'eier', 'ei ', 'spiegelei', 'schinken', 'fleisch', 'hähnchen', 'poulet',
+    // Dressings (tiny amounts)
+    'öl', 'olivenöl', 'essig', 'zitronensaft', 'zitrone',
   ];
 
-  function isVegetableFree(name) {
+  function isFreeFood(name) {
     const n = name.toLowerCase();
-    return FREE_VEGETABLES.some(v => n.includes(v));
+    return FREE_FOODS_LIST.some(v => n.includes(v));
   }
 
   // Nutrition lookup with improved fuzzy matching
@@ -308,16 +313,21 @@ export default function ReviewPage() {
     const ingredientStr = dishData.ingredients || '';
     return ingredientStr.split('|').map(part => {
       const p = part.trim();
-      const match = p.match(/^(.+?)\s+([\d.]+)\s*g/);
-      if (!match) return null;
-      const name = match[1].trim();
-      const weight = parseFloat(match[2]);
+      // Try: "Name X unit (Yg)" e.g. "Milch 4 dl (400g)" or "Eier 10 Stk (550g)"
+      const bracketMatch = p.match(/^(.+?)\s+([\d.]+\s*(?:dl|Stk|EL|TL|kg|L|Stück|stk)[^(]*)\((\d+)g\)/i);
+      // Try: "Name Xg" e.g. "Kartoffeln 2000g"
+      const directMatch = p.match(/^(.+?)\s+([\d.]+)\s*g/);
+      if (!bracketMatch && !directMatch) return null;
+      const name = bracketMatch ? bracketMatch[1].trim() : directMatch[1].trim();
+      // displayQty: show original unit e.g. "4 dl (400g)" or "10 Stk (550g)" or "2000g"
+      const displayQty = bracketMatch ? `${bracketMatch[2].trim()} (${bracketMatch[3]}g)` : `${directMatch[2]}g`;
+      const weight = bracketMatch ? parseFloat(bracketMatch[3]) : parseFloat(directMatch[2]);
       const nutrition = lookupNutrition(name, nutritionData);
       const per100 = nutrition ? nutrition.carbs_per_100g : null;
       const totalCarb = per100 !== null ? Math.round((weight * per100 / 100) * 10) / 10 : null;
-      const isFree = isVegetableFree(name) || (per100 !== null && per100 === 0);
+      const isFree = isFreeFood(name) || (per100 !== null && per100 === 0);
       const cluster = isFree ? 'free' : getCluster(name, modeRaw, mealData?.dish_name);
-      return { name, weight, per100, total: totalCarb, free: isFree, cluster };
+      return { name, weight, displayQty, per100, total: totalCarb, free: isFree, cluster };
     }).filter(Boolean);
   }
 
@@ -325,8 +335,8 @@ export default function ReviewPage() {
   const useRecipeTable = recipeIngredients.length > 0;
 
   const allIngredients = useRecipeTable ? recipeIngredients : [
-    ...carbFoods.map(f => ({ name: f.food, weight: f.portion_g, per100: f.carbs_per_100g, total: f.carbs_g, free: false, cluster: 'Main' })),
-    ...freeFoods.map(f => ({ name: f.food, weight: f.portion_g, per100: null, total: null, free: true, cluster: 'Free' })),
+    ...carbFoods.map(f => ({ name: f.food, weight: f.portion_g, displayQty: `${f.portion_g}g`, per100: f.carbs_per_100g, total: f.carbs_g, free: false, cluster: 'Main' })),
+    ...freeFoods.map(f => ({ name: f.food, weight: f.portion_g, displayQty: `${f.portion_g}g`, per100: null, total: null, free: true, cluster: 'Free' })),
   ];
 
   // Split into carb and free groups, then cluster carb ones
@@ -521,7 +531,7 @@ export default function ReviewPage() {
                             {showCluster && (
                               <tr>
                                 <td style={{...S.td, fontWeight:600, color:'#374151', background:'#f9fafb', borderTop:`1px solid ${BORDER}`}}>↳ {clusterName} subtotal</td>
-                                <td style={{...S.tdRight, fontWeight:600, background:'#f9fafb', borderTop:`1px solid ${BORDER}`}}>{clusterWeight}g</td>
+                                <td style={{...S.tdRight, fontWeight:600, background:'#f9fafb', borderTop:`1px solid ${BORDER}`}}></td>
                                 <td style={{...S.tdRight, background:'#f9fafb', borderTop:`1px solid ${BORDER}`}}></td>
                                 <td style={{...S.tdCarbs, fontWeight:700, background:'#f9fafb', borderTop:`1px solid ${BORDER}`}}>{clusterTotal}g</td>
                               </tr>
@@ -549,7 +559,7 @@ export default function ReviewPage() {
                           {freeIngredients.map((ing, i) => (
                             <tr key={i}>
                               <td style={{...S.td, color:'#9ca3af'}}>{ing.name}</td>
-                              <td style={{...S.tdRight, color:'#9ca3af'}}>{ing.weight}g</td>
+                              <td style={{...S.tdRight, color:'#9ca3af'}}>{ing.displayQty || `${ing.weight}g`}</td>
                               <td style={{...S.tdRight, color:'#9ca3af'}}>{ing.per100 !== null ? `${ing.per100}g` : '—'}</td>
                               <td style={{...S.tdFree}}>free</td>
                             </tr>
@@ -560,7 +570,7 @@ export default function ReviewPage() {
                       {/* GRAND TOTAL */}
                       <tr>
                         <td style={S.tdTotalLabel}>Total carbs in recipe</td>
-                        <td style={S.tdTotalRight}>{totalWeight}g</td>
+                        <td style={S.tdTotalRight}></td>
                         <td style={S.tdTotalRight}></td>
                         <td style={S.tdTotalCarbs}>{tableTotal}g</td>
                       </tr>
