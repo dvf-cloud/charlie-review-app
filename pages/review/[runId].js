@@ -8,17 +8,21 @@ const AIRTABLE_TABLE = process.env.NEXT_PUBLIC_AIRTABLE_TABLE;
 export default function ReviewPage() {
   const router = useRouter();
   const { runId } = router.query;
+
   const [record, setRecord] = useState(null);
+  const [calculation, setCalculation] = useState(null);
+  const [mealsJson, setMealsJson] = useState(null);
   const [meals, setMeals] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [corrections, setCorrections] = useState({});
   const [correctionText, setCorrectionText] = useState('');
   const [phase, setPhase] = useState('loading');
   const [airtableId, setAirtableId] = useState(null);
-  const [showTable, setShowTable] = useState(false);
-  const [copied, setCopied] = useState(false);
 
-  useEffect(() => { if (runId) fetchRecord(); }, [runId]);
+  useEffect(() => {
+    if (!runId) return;
+    fetchRecord();
+  }, [runId]);
 
   async function fetchRecord() {
     try {
@@ -27,20 +31,23 @@ export default function ReviewPage() {
         { headers: { Authorization: `Bearer ${AIRTABLE_TOKEN}` } }
       );
       const data = await res.json();
-      if (!data.records?.length) { setPhase('notfound'); return; }
+      if (!data.records || data.records.length === 0) { setPhase('notfound'); return; }
       const rec = data.records[0];
       setAirtableId(rec.id);
       setRecord(rec.fields);
-      const mealsJson = JSON.parse(rec.fields.meals_json || '{}');
-      const calcJson = JSON.parse(rec.fields.calculation_json || '{}');
+
+      const calc = JSON.parse(rec.fields.calculation_json);
+      setCalculation(calc);
+
+      let mj = null;
+      try { mj = JSON.parse(rec.fields.meals_json); } catch(e) {}
+      setMealsJson(mj);
+
       const mealList = [];
-      const dayOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
-      dayOrder.forEach(day => {
-        if (!mealsJson[day]) return;
-        ['Zmittag', 'Zvieri'].forEach(type => {
-          if (!mealsJson[day][type]) return;
-          mealList.push({ day, type, formatted: mealsJson[day][type], raw: calcJson.meals?.[day]?.[type] || {} });
-        });
+      const mealData = calc.meals || {};
+      Object.entries(mealData).forEach(([day, dayMeals]) => {
+        if (dayMeals.Zmittag) mealList.push({ day, type: 'Zmittag', data: dayMeals.Zmittag });
+        if (dayMeals.Zvieri) mealList.push({ day, type: 'Zvieri', data: dayMeals.Zvieri });
       });
       setMeals(mealList);
       setPhase('review');
@@ -49,313 +56,292 @@ export default function ReviewPage() {
 
   function handleApprove() {
     const meal = meals[currentIndex];
-    const nc = { ...corrections, [`${meal.day}_${meal.type}`]: 'APPROVED' };
-    setCorrections(nc);
+    setCorrections(prev => ({ ...prev, [`${meal.day}_${meal.type}`]: 'APPROVED' }));
     setCorrectionText('');
-    setShowTable(false);
     if (currentIndex < meals.length - 1) { setCurrentIndex(i => i + 1); }
-    else { finalizeAndSave(nc); }
+    else { finalizeAndSave(false); }
   }
 
   function handleCorrect() {
     if (!correctionText.trim()) return;
     const meal = meals[currentIndex];
-    const nc = { ...corrections, [`${meal.day}_${meal.type}`]: correctionText };
-    setCorrections(nc);
+    setCorrections(prev => ({ ...prev, [`${meal.day}_${meal.type}`]: correctionText }));
     setCorrectionText('');
-    setShowTable(false);
     if (currentIndex < meals.length - 1) { setCurrentIndex(i => i + 1); }
-    else { finalizeAndSave(nc); }
+    else { finalizeAndSave(true); }
   }
 
-  async function finalizeAndSave(fc) {
+  async function finalizeAndSave(hasCorrectionsMade) {
     setPhase('saving');
     try {
       await fetch(`https://api.airtable.com/v0/${AIRTABLE_BASE}/${AIRTABLE_TABLE}/${airtableId}`, {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${AIRTABLE_TOKEN}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fields: { status: 'APPROVED', corrections: JSON.stringify(fc) } })
+        body: JSON.stringify({ fields: { status: hasCorrectionsMade ? 'CORRECTED' : 'APPROVED', corrections: JSON.stringify(corrections) } })
       });
       setPhase('done');
     } catch (e) { setPhase('error'); }
   }
 
-  function copyKita() {
-    const kitaMsg = meals.map(m => m.formatted.kita_message).join('\n\n---\n\n');
-    navigator.clipboard.writeText(kitaMsg);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
+  const BLUE = '#1a6fe8';
+  const BLUE_LIGHT = '#e8f0fd';
+  const GRAY_DARK = '#374151';
+  const GRAY_MID = '#6b7280';
+  const BORDER = '#e5e7eb';
 
-  if (phase === 'loading') return <Shell><StateCard icon="⟳" title="Loading…" sub="Fetching Charlie's menu" /></Shell>;
-  if (phase === 'notfound') return <Shell><StateCard icon="∅" title="Not found" sub="This review link is invalid or expired" /></Shell>;
-  if (phase === 'error') return <Shell><StateCard icon="!" title="Error" sub="Something went wrong. Please try again." /></Shell>;
-  if (phase === 'saving') return <Shell><StateCard icon="↑" title="Saving…" sub="Recording your approvals" /></Shell>;
+  const roundCarbs = (v) => typeof v === 'number' ? Math.round(v * 10) / 10 : v;
 
-  if (phase === 'done') {
-    const allKita = meals.map(m => m.formatted.kita_message).join('\n\n---\n\n');
-    return (
-      <Shell record={record}>
-        <div style={s.doneWrap}>
-          <div style={s.doneCircle}>✓</div>
-          <h2 style={s.doneTitle}>All meals approved</h2>
-          <p style={s.doneSub}>Ready to send to KIDSatLAKE</p>
+  const styles = {
+    page: { minHeight: '100vh', background: '#f5f7fa', fontFamily: "'Georgia', serif" },
+    header: { background: 'white', borderBottom: `2px solid ${BLUE}`, padding: '1rem 2rem', display: 'flex', alignItems: 'center' },
+    headerTitle: { margin: 0, fontSize: '1.05rem', fontWeight: 500, color: BLUE, letterSpacing: '-0.01em' },
+    headerSub: { margin: '0.1rem 0 0', fontSize: '0.8rem', color: GRAY_MID },
+    progress: { background: 'white', padding: '0.85rem 2rem', borderBottom: `1px solid ${BORDER}`, display: 'flex', gap: '0.5rem', alignItems: 'center' },
+    progressDot: (i, corrected) => ({
+      width: 30, height: 30, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontSize: '0.72rem', fontWeight: 700, transition: 'all 0.3s',
+      background: i < currentIndex ? (corrected ? '#f97316' : '#16a34a') : i === currentIndex ? BLUE : '#e5e7eb',
+      color: i <= currentIndex ? 'white' : '#9ca3af',
+    }),
+    content: { maxWidth: 660, margin: '2rem auto', padding: '0 1rem' },
+    card: { background: 'white', borderRadius: 16, boxShadow: '0 2px 16px rgba(0,0,0,0.07)', overflow: 'hidden', marginBottom: '1.5rem' },
+    cardHeader: { background: `linear-gradient(135deg, ${BLUE} 0%, #1557c0 100%)`, padding: '1.4rem 1.8rem', color: 'white' },
+    dayBadge: { display: 'inline-block', background: 'rgba(255,255,255,0.18)', borderRadius: 20, padding: '0.18rem 0.7rem', fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: '0.4rem' },
+    mealName: { margin: 0, fontSize: '1.25rem', fontWeight: 600, lineHeight: 1.3, letterSpacing: '-0.01em' },
+    mealTypeLine: { margin: '0.4rem 0 0', opacity: 0.88, fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '0.5rem' },
+    speedBadge: (speed) => ({
+      display: 'inline-block', borderRadius: 20, padding: '0.12rem 0.55rem', fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.04em',
+      background: speed === 'fast' ? 'rgba(254,226,226,0.9)' : 'rgba(209,250,229,0.9)',
+      color: speed === 'fast' ? '#991b1b' : '#065f46',
+    }),
+    cardBody: { padding: '1.5rem 1.8rem' },
+    sectionLabel: { fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#9ca3af', marginBottom: '0.5rem', marginTop: 0 },
+    approachBox: { background: BLUE_LIGHT, borderRadius: 10, padding: '0.75rem 1rem', display: 'flex', gap: '0.8rem', alignItems: 'center', marginBottom: '1.4rem' },
+    approachBadge: { background: BLUE, color: 'white', borderRadius: 7, padding: '0.18rem 0.55rem', fontSize: '0.75rem', fontWeight: 700, whiteSpace: 'nowrap' },
+    approachText: { fontSize: '0.85rem', color: '#1e3a6e', margin: 0, lineHeight: 1.4 },
+    omnipodBar: { background: '#1e1b4b', borderRadius: 10, padding: '0.9rem 1.2rem', marginBottom: '1.4rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' },
+    omnipodLabel: { color: 'rgba(255,255,255,0.6)', fontSize: '0.7rem', fontWeight: 500, letterSpacing: '0.06em', textTransform: 'uppercase' },
+    omnipodValue: { color: 'white', fontSize: '1.5rem', fontWeight: 600, letterSpacing: '-0.02em' },
+    omnipodNote: { color: 'rgba(255,255,255,0.45)', fontSize: '0.68rem', marginTop: '0.15rem' },
+    omnipodSpeed: (speed) => ({
+      background: speed === 'fast' ? '#fee2e2' : '#d1fae5', color: speed === 'fast' ? '#991b1b' : '#065f46',
+      borderRadius: 8, padding: '0.35rem 0.7rem', fontSize: '0.72rem', fontWeight: 700, textAlign: 'center', whiteSpace: 'nowrap',
+    }),
+    table: { width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', marginBottom: '1.4rem' },
+    th: { textAlign: 'left', fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#9ca3af', padding: '0.4rem 0.5rem', borderBottom: `2px solid ${BORDER}` },
+    thRight: { textAlign: 'right', fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#9ca3af', padding: '0.4rem 0.5rem', borderBottom: `2px solid ${BORDER}` },
+    td: { padding: '0.5rem 0.5rem', borderBottom: `1px solid #f3f4f6`, color: GRAY_DARK, verticalAlign: 'middle' },
+    tdRight: { padding: '0.5rem 0.5rem', borderBottom: `1px solid #f3f4f6`, color: GRAY_DARK, textAlign: 'right', verticalAlign: 'middle' },
+    tdCarbs: { padding: '0.5rem 0.5rem', borderBottom: `1px solid #f3f4f6`, color: BLUE, fontWeight: 700, textAlign: 'right', verticalAlign: 'middle' },
+    freeFoodsBox: { background: '#f9fafb', borderRadius: 10, padding: '0.75rem 1rem', marginBottom: '1.4rem' },
+    freeFoodItem: { fontSize: '0.85rem', color: GRAY_MID, padding: '0.2rem 0', display: 'flex', gap: '0.5rem', alignItems: 'baseline', flexWrap: 'wrap' },
+    freeFoodName: { color: GRAY_DARK, fontWeight: 500 },
+    nachschlagBox: { background: '#fef9ec', border: `1px solid #fde68a`, borderRadius: 10, padding: '0.85rem 1rem', marginBottom: '1.4rem', fontSize: '0.85rem', color: '#78350f', lineHeight: 1.6 },
+    parentalBox: { background: '#f3f4f6', borderRadius: 10, padding: '1rem 1.2rem', marginBottom: '1rem' },
+    parentalText: { fontSize: '0.82rem', color: '#4b5563', lineHeight: 1.75, whiteSpace: 'pre-wrap', margin: 0, fontFamily: "'Georgia', serif" },
+    actions: { padding: '1.2rem 1.8rem', background: '#fafafa', borderTop: `1px solid ${BORDER}` },
+    correctionInput: { width: '100%', padding: '0.75rem 1rem', borderRadius: 10, border: `2px solid ${BORDER}`, fontSize: '0.88rem', fontFamily: 'inherit', resize: 'vertical', marginBottom: '0.9rem', outline: 'none', boxSizing: 'border-box', color: GRAY_DARK },
+    btnRow: { display: 'flex', gap: '0.75rem' },
+    btnApprove: { flex: 1, padding: '0.85rem', borderRadius: 11, border: '2px solid #16a34a', background: '#f0fdf4', color: '#15803d', fontSize: '0.95rem', fontWeight: 600, cursor: 'pointer' },
+    btnCorrect: (active) => ({ flex: 1, padding: '0.85rem', borderRadius: 11, border: `2px solid ${active ? '#f97316' : BORDER}`, background: active ? '#fff7ed' : 'white', color: active ? '#c2410c' : '#9ca3af', fontSize: '0.95rem', fontWeight: 600, cursor: active ? 'pointer' : 'default', transition: 'all 0.2s' }),
+    doneCard: { background: 'white', borderRadius: 16, padding: '2.5rem 2rem', textAlign: 'center', boxShadow: '0 2px 16px rgba(0,0,0,0.07)' },
+    kitaMessage: { background: '#f0fdf4', border: '2px solid #86efac', borderRadius: 12, padding: '1.2rem', textAlign: 'left', fontSize: '0.88rem', lineHeight: 1.65, whiteSpace: 'pre-wrap', marginTop: '1.5rem', color: '#166534' },
+    copyBtn: { marginTop: '1rem', padding: '0.8rem 2rem', borderRadius: 11, border: 'none', background: BLUE, color: 'white', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer', width: '100%' },
+  };
+
+  if (phase === 'loading') return <div style={styles.page}><div style={{textAlign:'center',padding:'4rem',color:GRAY_MID}}><div style={{fontSize:'2rem',marginBottom:'1rem'}}>⏳</div>Loading Charlie's menu...</div></div>;
+  if (phase === 'notfound') return <div style={styles.page}><div style={{textAlign:'center',padding:'4rem',color:GRAY_MID}}><div style={{fontSize:'2rem',marginBottom:'1rem'}}>🔍</div>Review not found.</div></div>;
+  if (phase === 'error') return <div style={styles.page}><div style={{textAlign:'center',padding:'4rem',color:'#ef4444'}}><div style={{fontSize:'2rem',marginBottom:'1rem'}}>⚠️</div>Something went wrong.</div></div>;
+  if (phase === 'saving') return <div style={styles.page}><div style={{textAlign:'center',padding:'4rem',color:GRAY_MID}}><div style={{fontSize:'2rem',marginBottom:'1rem'}}>💾</div>Saving your review...</div></div>;
+
+  if (phase === 'done') return (
+    <div style={styles.page}>
+      <div style={styles.header}><div><h1 style={styles.headerTitle}>🩺 Charlie's Meal Review</h1><p style={styles.headerSub}>All meals reviewed</p></div></div>
+      <div style={styles.content}>
+        <div style={styles.doneCard}>
+          <div style={{fontSize:'2.5rem',marginBottom:'0.75rem'}}>✅</div>
+          <h2 style={{color:'#1e1b4b',marginBottom:'0.5rem',fontWeight:600}}>All done!</h2>
+          <p style={{color:GRAY_MID,marginBottom:'1.5rem',fontSize:'0.9rem'}}>Message for the kindergarten:</p>
+          <div style={styles.kitaMessage}>{record?.kindergarten_message?.replace(/\\n/g, '\n')}</div>
+          <button style={styles.copyBtn} onClick={() => { navigator.clipboard.writeText(record?.kindergarten_message?.replace(/\\n/g, '\n') || ''); alert('Copied!'); }}>📋 Copy to clipboard</button>
         </div>
-        <Card>
-          <Label>Kita Message</Label>
-          <pre style={s.kitaPre}>{allKita}</pre>
-          <button
-            style={{...s.btnPrimary, marginTop:'1rem', width:'100%', background: copied ? '#059669' : '#0f172a'}}
-            onClick={copyKita}
-          >
-            {copied ? '✓  Copied!' : 'Copy to clipboard'}
-          </button>
-        </Card>
-      </Shell>
-    );
-  }
+      </div>
+    </div>
+  );
 
+  if (!meals.length) return null;
   const meal = meals[currentIndex];
   if (!meal) return null;
-  const { formatted, raw } = meal;
-  const carbFoods = raw?.carb_foods || [];
-  const freeFoods = raw?.free_foods || [];
-  const isFast = formatted?.herleitung?.toLowerCase().includes('fast');
-  const pct = Math.round((currentIndex / meals.length) * 100);
+
+  const mealData = meal.data;
+  const carbFoods = mealData?.carb_foods || [];
+  const freeFoods = mealData?.free_foods || [];
+  const totalCarbs = mealData?.total_carbs_g ?? mealData?.carb_target_g ?? '—';
+  const nachschlag = mealData?.nachschlag;
+  const glycemicSpeed = mealData?.glycemic_speed_meal || mealData?.glycemic_speed || '';
+  const herleitung = mealsJson?.[meal.day]?.[meal.type]?.herleitung || null;
+  const mealTypeLabel = meal.type === 'Zmittag' ? 'Lunch' : 'Afternoon Snack';
+  const mealTypeEmoji = meal.type === 'Zmittag' ? '🍽' : '🍎';
+
+  // Parse mode_applied — extract badge text and description
+  const modeRaw = mealData?.mode_applied || '';
+  const modeParts = modeRaw.split(/—|-(.+)/s);
+  const modeBadge = modeParts[0]?.trim() || modeRaw;
+  const modeDesc = modeParts.slice(1).join('').trim() || `Target: ${mealData?.carb_target_g}g carbs`;
 
   return (
-    <Shell record={record}>
-      <div style={s.progressWrap}>
-        <div style={s.progressBg}>
-          <div style={{...s.progressFill, width:`${pct}%`}} />
-        </div>
-        <div style={s.progressMeta}>
-          <div style={s.dots}>
-            {meals.map((_, i) => (
-              <div key={i} style={{
-                ...s.dot,
-                background: i < currentIndex ? '#0f172a' : i === currentIndex ? '#0ea5e9' : '#e2e8f0'
-              }} />
-            ))}
-          </div>
-          <span style={s.counter}>{currentIndex + 1} of {meals.length}</span>
+    <div style={styles.page}>
+      <div style={styles.header}>
+        <div>
+          <h1 style={styles.headerTitle}>🩺 Charlie's Meal Review</h1>
+          <p style={styles.headerSub}>{record?.email_subject}</p>
         </div>
       </div>
 
-      <div style={s.mealHeader}>
-        <div style={s.pills}>
-          <Pill>{meal.day}</Pill>
-          <Pill>{meal.type === 'Zmittag' ? 'Lunch' : 'Snack'}</Pill>
-          <Pill color={isFast ? '#dc2626' : '#16a34a'} bg={isFast ? '#fef2f2' : '#f0fdf4'} ring={isFast ? '#fecaca' : '#bbf7d0'}>
-            {isFast ? '⚡ Fast acting' : '◎ Slow acting'}
-          </Pill>
-        </div>
-        <h1 style={s.mealTitle}>{raw?.dish_name || meal.type}</h1>
+      <div style={styles.progress}>
+        {meals.map((m, i) => {
+          const key = `${m.day}_${m.type}`;
+          const corrected = corrections[key] && corrections[key] !== 'APPROVED';
+          return <div key={i} style={styles.progressDot(i, corrected)} title={`${m.day} ${m.type}`}>{i + 1}</div>;
+        })}
+        <span style={{marginLeft:'auto',fontSize:'0.78rem',color:'#9ca3af'}}>{currentIndex + 1} / {meals.length}</span>
       </div>
 
-      <div style={s.statsRow}>
-        <div style={s.statCell}>
-          <div style={s.statNum}>{formatted?.total_carbs_g}g</div>
-          <div style={s.statLbl}>Total carbs</div>
-        </div>
-        <div style={s.statDivider} />
-        <div style={s.statCell}>
-          <div style={{...s.statNum, color:'#0ea5e9'}}>{formatted?.omnipod_g}g</div>
-          <div style={s.statLbl}>Enter in Omnipod</div>
-        </div>
-        <div style={s.statDivider} />
-        <div style={s.statCell}>
-          <div style={s.statNum}>{raw?.nachschlag?.carb_foods?.[0] ? `+${raw.nachschlag.carb_foods[0].carbs_g}g` : '—'}</div>
-          <div style={s.statLbl}>If she wants more</div>
-        </div>
-      </div>
+      <div style={styles.content}>
+        <div style={styles.card}>
 
-      <Card>
-        <Label>Calculation Reasoning</Label>
-        <div style={s.reasonBox}>
-          {formatted?.herleitung?.split('\n').map((line, i) => {
-            if (!line.trim()) return <div key={i} style={{height:'0.45rem'}} />;
-            const isH = ['LIBRARY CHECK','CARB COMPONENT','ACCOMPANIMENT','FREE COMPONENTS','NACHSCHLAG','GLYCEMIC','OMNIPOD'].some(h => line.startsWith(h));
-            if (isH) return (
-              <div key={i} style={s.reasonHead}>
-                <span style={s.reasonDot} />
-                {line}
-              </div>
-            );
-            return <div key={i} style={s.reasonLine}>{line}</div>;
-          })}
-        </div>
-      </Card>
-
-      <button style={s.toggle} onClick={() => setShowTable(v => !v)}>
-        <span>{showTable ? 'Hide' : 'Show'} ingredient table</span>
-        <span style={s.toggleChev}>{showTable ? '▲' : '▼'}</span>
-      </button>
-
-      {showTable && (
-        <Card noPad>
-          {carbFoods.length > 0 && (
-            <div style={{padding:'1.1rem 1.3rem'}}>
-              <Label>Carb Components</Label>
-              <div style={s.tHead}>
-                <span style={{flex:2.5}}>Ingredient</span>
-                <span style={{flex:1,textAlign:'right'}}>Recipe wt.</span>
-                <span style={{flex:1,textAlign:'right'}}>/100g</span>
-                <span style={{flex:1,textAlign:'right'}}>Carbs</span>
-              </div>
-              {carbFoods.map((f, i) => (
-                <div key={i} style={s.tRow}>
-                  <span style={{flex:2.5,fontWeight:600,textTransform:'capitalize'}}>
-                    {f.food}
-                    <span style={{...s.speedTag, color:f.glycemic_speed==='fast'?'#dc2626':'#16a34a', background:f.glycemic_speed==='fast'?'#fef2f2':'#f0fdf4'}}>
-                      {f.glycemic_speed}
-                    </span>
-                  </span>
-                  <span style={{flex:1,textAlign:'right',color:'#64748b'}}>{f.portion_g}g</span>
-                  <span style={{flex:1,textAlign:'right',color:'#94a3b8'}}>{f.carbs_per_100g}g</span>
-                  <span style={{flex:1,textAlign:'right',fontWeight:700}}>{f.carbs_g}g</span>
-                </div>
-              ))}
-              <div style={s.tFooter}>
-                <span style={{flex:2.5,color:'#64748b',fontWeight:600}}>Total</span>
-                <span style={{flex:1}}/><span style={{flex:1}}/>
-                <span style={{flex:1,textAlign:'right',fontWeight:800,color:'#0ea5e9'}}>{formatted?.total_carbs_g}g</span>
-              </div>
-            </div>
-          )}
-          {freeFoods.length > 0 && (
-            <div style={{padding:'0 1.3rem 1.1rem', borderTop:'1px solid #f1f5f9'}}>
-              <div style={{paddingTop:'1rem'}}><Label>Free Foods</Label></div>
-              {freeFoods.map((f, i) => (
-                <div key={i} style={{...s.tRow, opacity:0.55}}>
-                  <span style={{flex:2.5,textTransform:'capitalize',color:'#64748b'}}>{f.food.replace(/_/g,' ')}</span>
-                  <span style={{flex:1,textAlign:'right',color:'#94a3b8'}}>{f.portion_g}g</span>
-                  <span style={{flex:1,textAlign:'right',color:'#94a3b8'}}>—</span>
-                  <span style={{flex:1,textAlign:'right',color:'#94a3b8',fontSize:'0.72rem'}}>{f.reason?.replace(/_/g,' ')}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-      )}
-
-      <Card>
-        <Label>Your Decision</Label>
-        <textarea
-          style={s.textarea}
-          placeholder="Optional correction — e.g. 'Portion size should be 150g not 41g'"
-          value={correctionText}
-          onChange={e => setCorrectionText(e.target.value)}
-          rows={2}
-        />
-        <div style={s.btnRow}>
-          <button style={s.btnPrimary} onClick={handleApprove}>✓  Approve</button>
-          <button
-            style={{...s.btnOutline, opacity:correctionText.trim()?1:0.3, cursor:correctionText.trim()?'pointer':'not-allowed'}}
-            onClick={handleCorrect}
-            disabled={!correctionText.trim()}
-          >
-            ✎  Correct &amp; continue
-          </button>
-        </div>
-      </Card>
-
-    </Shell>
-  );
-}
-
-function Shell({ children, record }) {
-  return (
-    <div style={s.page}>
-      <header style={s.header}>
-        <div style={s.headerInner}>
-          <div style={s.logo}>
-            <div style={s.logoMark}>C</div>
-            <div>
-              <div style={s.logoName}>Charlie · Meal Review</div>
-              {record?.email_subject && <div style={s.logoSub}>{record.email_subject}</div>}
+          {/* HEADER */}
+          <div style={styles.cardHeader}>
+            <div style={styles.dayBadge}>{meal.day}</div>
+            <h2 style={styles.mealName}>{mealData?.dish_name || meal.type}</h2>
+            <div style={styles.mealTypeLine}>
+              <span>{mealTypeEmoji} {mealTypeLabel}</span>
+              {glycemicSpeed && (
+                <span style={styles.speedBadge(glycemicSpeed)}>
+                  {glycemicSpeed === 'fast' ? '⚡ Fast acting' : '🐢 Slow acting'}
+                </span>
+              )}
             </div>
           </div>
+
+          <div style={styles.cardBody}>
+
+            {/* MEAL APPROACH */}
+            {modeRaw && (
+              <div style={{marginBottom:'1.4rem'}}>
+                <div style={styles.sectionLabel}>Meal Approach</div>
+                <div style={styles.approachBox}>
+                  <span style={styles.approachBadge}>{modeBadge}</span>
+                  <p style={styles.approachText}>{modeDesc}</p>
+                </div>
+              </div>
+            )}
+
+            {/* OMNIPOD */}
+            <div style={styles.omnipodBar}>
+              <div>
+                <div style={styles.omnipodLabel}>Omnipod — Enter carbs</div>
+                <div style={styles.omnipodValue}>{roundCarbs(totalCarbs)}g</div>
+                <div style={styles.omnipodNote}>Do not click "Sensordaten verwenden" unless instructed</div>
+              </div>
+              {glycemicSpeed && (
+                <div style={styles.omnipodSpeed(glycemicSpeed)}>
+                  {glycemicSpeed === 'fast' ? '⏱ Wait 10 min' : '✓ No wait needed'}
+                </div>
+              )}
+            </div>
+
+            {/* CARB CALCULATION TABLE */}
+            {carbFoods.length > 0 && (
+              <div style={{marginBottom:'1.4rem'}}>
+                <div style={styles.sectionLabel}>Carb Calculation</div>
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.th}>Ingredient</th>
+                      <th style={styles.thRight}>Total weight</th>
+                      <th style={styles.thRight}>g / 100g</th>
+                      <th style={styles.thRight}>Total carbs</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {carbFoods.map((f, i) => (
+                      <tr key={i}>
+                        <td style={styles.td}>{f.food}</td>
+                        <td style={styles.tdRight}>{f.portion_g}g</td>
+                        <td style={styles.tdRight}>{f.carbs_per_100g}g</td>
+                        <td style={styles.tdCarbs}>{roundCarbs(f.carbs_g)}g</td>
+                      </tr>
+                    ))}
+                    <tr>
+                      <td style={{...styles.td, fontWeight:700, borderTop:`2px solid ${BORDER}`, borderBottom:'none'}}>Total</td>
+                      <td style={{...styles.tdRight, borderTop:`2px solid ${BORDER}`, borderBottom:'none'}}></td>
+                      <td style={{...styles.tdRight, borderTop:`2px solid ${BORDER}`, borderBottom:'none'}}></td>
+                      <td style={{...styles.tdCarbs, fontWeight:700, fontSize:'1rem', borderTop:`2px solid ${BORDER}`, borderBottom:'none'}}>{roundCarbs(totalCarbs)}g</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* CARB-FREE FOODS */}
+            {freeFoods.length > 0 && (
+              <div style={{marginBottom:'1.4rem'}}>
+                <div style={styles.sectionLabel}>Carb-Free Foods</div>
+                <div style={styles.freeFoodsBox}>
+                  {freeFoods.map((f, i) => (
+                    <div key={i} style={styles.freeFoodItem}>
+                      <span style={styles.freeFoodName}>{f.food}</span>
+                      <span style={{color:'#9ca3af', fontSize:'0.8rem'}}>{f.portion_g}g — {f.reason}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* NACHSCHLAG */}
+            {nachschlag && nachschlag.carb_foods && nachschlag.carb_foods.length > 0 && (
+              <div style={{marginBottom:'1.4rem'}}>
+                <div style={styles.sectionLabel}>Nachschlag</div>
+                <div style={styles.nachschlagBox}>
+                  {nachschlag.carb_foods.map((f, i) => (
+                    <div key={i}>
+                      +{f.portion_g}g {f.food} → enter additional <strong>{roundCarbs(f.carbs_g)}g carbs</strong> in Omnipod
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* PARENTAL CONTROL */}
+            {herleitung && (
+              <div style={{marginBottom:'0.5rem'}}>
+                <div style={styles.sectionLabel}>Parental Control</div>
+                <div style={styles.parentalBox}>
+                  <p style={styles.parentalText}>{herleitung}</p>
+                </div>
+              </div>
+            )}
+
+          </div>
+
+          {/* ACTIONS */}
+          <div style={styles.actions}>
+            <textarea
+              style={styles.correctionInput}
+              placeholder="Add a correction if needed (optional)..."
+              value={correctionText}
+              onChange={e => setCorrectionText(e.target.value)}
+              rows={2}
+            />
+            <div style={styles.btnRow}>
+              <button style={styles.btnApprove} onClick={handleApprove}>✅ Approve</button>
+              <button style={styles.btnCorrect(!!correctionText.trim())} onClick={handleCorrect} disabled={!correctionText.trim()}>✏️ Correct & Next</button>
+            </div>
+          </div>
+
         </div>
-      </header>
-      <main style={s.main}>{children}</main>
+      </div>
     </div>
   );
 }
-
-function Card({ children, noPad }) {
-  return <div style={{...s.card, padding: noPad ? 0 : '1.2rem 1.3rem'}}>{children}</div>;
-}
-
-function Label({ children }) {
-  return <div style={s.label}>{children}</div>;
-}
-
-function Pill({ children, color, bg, ring }) {
-  return (
-    <span style={{
-      display:'inline-block', fontSize:'0.67rem', fontWeight:700,
-      letterSpacing:'0.04em', textTransform:'uppercase',
-      padding:'0.18rem 0.5rem', borderRadius:4,
-      color: color||'#64748b', background: bg||'#f1f5f9',
-      border:`1px solid ${ring||'#e2e8f0'}`
-    }}>{children}</span>
-  );
-}
-
-function StateCard({ icon, title, sub }) {
-  return (
-    <div style={{textAlign:'center', padding:'5rem 1rem'}}>
-      <div style={{fontSize:'2rem', color:'#cbd5e1', marginBottom:'1.2rem'}}>{icon}</div>
-      <div style={{fontWeight:700, fontSize:'1.1rem', color:'#0f172a', marginBottom:'0.3rem'}}>{title}</div>
-      <div style={{fontSize:'0.85rem', color:'#94a3b8'}}>{sub}</div>
-    </div>
-  );
-}
-
-const s = {
-  page: { minHeight:'100vh', background:'#f8fafc', fontFamily:"'DM Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", color:'#0f172a' },
-  header: { background:'#ffffff', borderBottom:'1px solid #e2e8f0', position:'sticky', top:0, zIndex:10 },
-  headerInner: { maxWidth:700, margin:'0 auto', padding:'0.85rem 1.2rem' },
-  logo: { display:'flex', alignItems:'center', gap:'0.75rem' },
-  logoMark: { width:34, height:34, borderRadius:8, background:'#0f172a', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:900, fontSize:'0.95rem', color:'white', flexShrink:0 },
-  logoName: { fontWeight:700, fontSize:'0.9rem', color:'#0f172a', letterSpacing:'-0.01em' },
-  logoSub: { fontSize:'0.68rem', color:'#94a3b8', marginTop:'0.1rem' },
-  main: { maxWidth:700, margin:'0 auto', padding:'1.5rem 1rem 4rem' },
-  progressWrap: { marginBottom:'1.5rem' },
-  progressBg: { height:3, background:'#e2e8f0', borderRadius:99, overflow:'hidden', marginBottom:'0.65rem' },
-  progressFill: { height:'100%', background:'#0ea5e9', borderRadius:99, transition:'width 0.35s ease' },
-  progressMeta: { display:'flex', alignItems:'center', justifyContent:'space-between' },
-  dots: { display:'flex', gap:'0.35rem' },
-  dot: { width:8, height:8, borderRadius:'50%', transition:'background 0.2s' },
-  counter: { fontSize:'0.72rem', fontWeight:600, color:'#94a3b8' },
-  mealHeader: { marginBottom:'1.3rem', paddingBottom:'1.3rem', borderBottom:'1px solid #f1f5f9' },
-  pills: { display:'flex', gap:'0.4rem', flexWrap:'wrap', marginBottom:'0.6rem' },
-  mealTitle: { margin:0, fontSize:'1.75rem', fontWeight:800, letterSpacing:'-0.03em', lineHeight:1.2, color:'#0f172a' },
-  statsRow: { display:'flex', background:'#ffffff', border:'1px solid #e2e8f0', borderRadius:12, marginBottom:'1.2rem', overflow:'hidden' },
-  statCell: { flex:1, padding:'1rem 0.8rem', textAlign:'center' },
-  statNum: { fontSize:'1.5rem', fontWeight:800, letterSpacing:'-0.03em' },
-  statLbl: { fontSize:'0.6rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.08em', color:'#94a3b8', marginTop:'0.2rem' },
-  statDivider: { width:1, background:'#f1f5f9', margin:'0.8rem 0' },
-  card: { background:'#ffffff', border:'1px solid #e2e8f0', borderRadius:12, marginBottom:'0.9rem' },
-  label: { fontSize:'0.6rem', fontWeight:800, letterSpacing:'0.13em', textTransform:'uppercase', color:'#94a3b8', marginBottom:'0.65rem' },
-  reasonBox: { background:'#f8fafc', borderRadius:8, border:'1px solid #f1f5f9', padding:'1rem 1.1rem', fontSize:'0.84rem', lineHeight:1.75, color:'#334155' },
-  reasonHead: { display:'flex', alignItems:'center', gap:'0.45rem', fontWeight:700, color:'#0f172a', fontSize:'0.78rem', marginTop:'0.75rem', marginBottom:'0.15rem' },
-  reasonDot: { width:5, height:5, borderRadius:'50%', background:'#0ea5e9', flexShrink:0 },
-  reasonLine: { paddingLeft:'1rem', color:'#475569', fontSize:'0.82rem' },
-  toggle: { width:'100%', padding:'0.75rem 1rem', borderRadius:10, border:'1px solid #e2e8f0', background:'white', color:'#64748b', fontSize:'0.8rem', fontWeight:600, cursor:'pointer', marginBottom:'0.9rem', display:'flex', alignItems:'center', justifyContent:'space-between' },
-  toggleChev: { fontSize:'0.62rem', color:'#cbd5e1' },
-  tHead: { display:'flex', padding:'0.35rem 0', borderBottom:'1px solid #f1f5f9', fontSize:'0.62rem', fontWeight:700, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:'0.1rem' },
-  tRow: { display:'flex', padding:'0.5rem 0', borderBottom:'1px solid #fafafa', alignItems:'center', fontSize:'0.82rem' },
-  tFooter: { display:'flex', padding:'0.6rem 0 0', borderTop:'2px solid #f1f5f9', marginTop:'0.2rem', fontSize:'0.82rem' },
-  speedTag: { marginLeft:'0.4rem', borderRadius:4, padding:'0.08rem 0.3rem', fontSize:'0.6rem', fontWeight:700, display:'inline-block' },
-  textarea: { width:'100%', padding:'0.8rem 0.9rem', borderRadius:8, border:'1.5px solid #e2e8f0', fontSize:'0.84rem', fontFamily:'inherit', resize:'vertical', marginBottom:'0.9rem', outline:'none', boxSizing:'border-box', color:'#0f172a', lineHeight:1.55, background:'#f8fafc' },
-  btnRow: { display:'flex', gap:'0.6rem' },
-  btnPrimary: { flex:1, padding:'0.9rem', borderRadius:9, border:'none', background:'#0f172a', color:'white', fontSize:'0.9rem', fontWeight:700, cursor:'pointer', letterSpacing:'-0.01em' },
-  btnOutline: { flex:1, padding:'0.9rem', borderRadius:9, border:'1.5px solid #e2e8f0', background:'white', color:'#0f172a', fontSize:'0.9rem', fontWeight:700, letterSpacing:'-0.01em' },
-  doneWrap: { textAlign:'center', padding:'3rem 0 2rem' },
-  doneCircle: { width:60, height:60, borderRadius:'50%', background:'#0f172a', color:'white', fontSize:'1.5rem', fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 1.2rem' },
-  doneTitle: { margin:'0 0 0.4rem', fontSize:'1.6rem', fontWeight:800, letterSpacing:'-0.03em' },
-  doneSub: { margin:0, color:'#64748b', fontSize:'0.9rem' },
-  kitaPre: { background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:10, padding:'1.1rem', fontSize:'0.83rem', lineHeight:1.8, whiteSpace:'pre-wrap', color:'#334155', fontFamily:'monospace', margin:0, overflowX:'auto' },
-};
