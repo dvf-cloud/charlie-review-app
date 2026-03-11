@@ -217,7 +217,14 @@ export default function ReviewPage() {
           <div style={{fontSize:'2.5rem',marginBottom:'0.75rem'}}>✅</div>
           <h2 style={{color:'#1e1b4b',marginBottom:'0.5rem',fontWeight:600}}>All done!</h2>
           <p style={{color:GRAY_MID,marginBottom:'1.5rem',fontSize:'0.9rem'}}>Message for the kindergarten:</p>
-          <div style={S.kitaMessage}>{record?.kindergarten_message?.replace(/\\n/g, '\n')}</div>
+          <div style={S.kitaMessage}>{
+            (() => {
+              const msg = (record?.kindergarten_message || '').replace(/\\n/g, '\n');
+              const closing = 'Please tell us if Charlotte did not finish her portion. Do not force her to eat — if she does not feel like eating, that is completely fine.';
+              const stripped = msg.split(closing).join('').replace(/\n{3,}/g, '\n\n').trim();
+              return stripped + '\n\n' + closing;
+            })()
+          }</div>
           <button style={S.copyBtn} onClick={() => { navigator.clipboard.writeText(record?.kindergarten_message?.replace(/\\n/g, '\n') || ''); alert('Copied!'); }}>📋 Copy to clipboard</button>
         </div>
       </div>
@@ -233,11 +240,12 @@ export default function ReviewPage() {
   const carbFoods = mealData?.carb_foods || [];
   const freeFoods = mealData?.free_foods || [];
   const totalCarbs = mealData?.total_carbs_g ?? mealData?.carb_target_g ?? 0;
-  // Charlie's portion size — sum of all served components (carb + free foods)
+  // Charlie's portion size — carb foods only (the weighed/counted component)
   const portionSize = Math.round(
-    [...(mealData?.carb_foods || []), ...(mealData?.free_foods || [])]
-      .reduce((s, f) => s + (f.portion_g || 0), 0)
+    (mealData?.carb_foods || []).reduce((s, f) => s + (f.portion_g || 0), 0)
   );
+  // Portion description — main carb component name(s)
+  const portionDesc = (mealData?.carb_foods || []).map(f => f.food).join(' + ') || '';
   const nachschlag = mealData?.nachschlag;
   const glycemicSpeed = mealData?.glycemic_speed_meal || mealData?.glycemic_speed || '';
   const herleitung = mealsJson?.[meal.day]?.[meal.type]?.herleitung || null;
@@ -249,15 +257,15 @@ export default function ReviewPage() {
   const parsed = parseHerleitung(herleitung);
   // Free foods — always carb-free (vegetables + eggs + protein items)
   const FREE_FOODS_LIST = [
-    // Vegetables
+    // Vegetables (free when served as side — not when baked into dish)
     'erbsen', 'karotten', 'gurken', 'gurke', 'karotte', 'tomaten', 'tomate',
-    'brokkoli', 'blumenkohl', 'auberginen', 'aubergine', 'lauch', 'fenchel',
+    'brokkoli', 'blumenkohl', 'auberginen', 'aubergine', 'fenchel',
     'nüsslisalat', 'gemüsesticks', 'gemüse', 'paprika', 'zwiebeln', 'zwiebel',
     'spinat', 'zucchini', 'sellerie', 'rüebli', 'randen', 'blattsalat',
     // Protein / fat (negligible carbs)
     'eier', 'ei ', 'spiegelei', 'schinken', 'fleisch', 'hähnchen', 'poulet',
-    // Dressings (tiny amounts, but show in cluster — only free at recipe scale)
-    'öl', 'olivenöl', 'essig', 'zitronensaft', 'zitrone',
+    // Dressings — oils free, acids negligible
+    'öl', 'olivenöl', 'essig',
   ];
 
   function isFreeFood(name) {
@@ -303,10 +311,10 @@ export default function ReviewPage() {
 
     // QUICHE DAY — everything in one quiche cluster + tomatensalat separate
     if (dish.includes('quiche')) {
-      if (n.includes('tomaten') || n.includes('randen') || n.includes('randensalat')) return 'Tomatensalat / side salad';
-      // Öl and Essig/Zitrone in small amounts → dressing for salad
-      if ((n.includes('öl') || n.includes('essig') || n.includes('zitron')) && dish.includes('tomatensalat')) return 'Tomatensalat / side salad';
-      // Everything else → Quiche Lorraine
+      // Salad side: tomaten + dressing
+      if (n.includes('tomaten') || n.includes('randen') || n.includes('randensalat')) return 'Tomatensalat';
+      if (n.includes('öl') || n.includes('olivenöl') || n.includes('essig') || n.includes('zitron')) return 'Tomatensalat';
+      // Everything else (mehl, butter, eier, rahm, lauch, schinken, käse) → Quiche
       return 'Quiche Lorraine';
     }
 
@@ -315,7 +323,8 @@ export default function ReviewPage() {
 
     // HUMMUS
     if (dish.includes('hummus')) {
-      if (n.includes('gemüsesticks') || n.includes('karotte') || n.includes('gurke') || n.includes('paprika')) return 'Gemüsesticks';
+      if (n.includes('gemüsesticks') || (n.includes('karotte') && !n.includes('kicher')) || n.includes('gurke') || n.includes('paprika')) return 'Gemüsesticks (free)';
+      // kichererbsen, rote bete, zitronensaft, olivenöl → hummus base
       return 'Pinker Hummus';
     }
 
@@ -342,8 +351,9 @@ export default function ReviewPage() {
       const nutrition = lookupNutrition(name, nutritionData);
       const per100 = nutrition ? nutrition.carbs_per_100g : null;
       const totalCarb = per100 !== null ? Math.round((weight * per100 / 100) * 10) / 10 : null;
-      const isFree = isFreeFood(name) || (per100 !== null && per100 === 0);
-      const cluster = isFree ? 'free' : getCluster(name, modeRaw, mealData?.dish_name);
+      const cluster = isFreeFood(name) ? 'free' : getCluster(name, modeRaw, mealData?.dish_name);
+      const isFree = isFreeFood(name) || cluster === 'Gemüsesticks (free)' || (per100 !== null && per100 === 0);
+      // cluster already computed above
       return { name, weight, displayQty, per100, total: totalCarb, free: isFree, cluster };
     }).filter(Boolean);
   }
@@ -436,8 +446,8 @@ export default function ReviewPage() {
                 {/* Col 0 — Portion Size */}
                 <div style={S.omnipodCellFirst}>
                   <div style={S.omnipodCellLabel}>Portion Size</div>
-                  <div style={S.omnipodRounded}>{portionSize}g</div>
-                  <div style={S.omnipodCellSub}>Charlie's serving</div>
+                  <div style={S.omnipodRounded}>{portionSize}g {portionDesc}</div>
+                  <div style={S.omnipodCellSub}>+ free sides unlimited</div>
                 </div>
                 {/* Divider */}
                 <div style={S.omnipodDivider} />
@@ -453,14 +463,14 @@ export default function ReviewPage() {
                 <div style={S.omnipodCell}>
                   <div style={S.omnipodCellLabel}>Glycemic Speed</div>
                   <div style={S.omnipodCellValue}>{glycemicSpeed === 'fast' ? '⚡ Fast acting' : '🐢 Slow acting'}</div>
-                  <div style={S.omnipodCellEmphasis}>{glycemicSpeed === 'fast' ? '⏱ Wait 10 min before meal' : '✓ No waiting needed'}</div>
+                  <div style={S.omnipodCellSub}>{glycemicSpeed === 'fast' ? '⏱ Wait 10 min before meal' : '✓ No waiting needed'}</div>
                 </div>
                 {/* Divider */}
                 <div style={S.omnipodDivider} />
                 {/* Col 3 — Warning */}
                 <div style={S.omnipodCell}>
                   <div style={S.omnipodCellLabel}>Important</div>
-                  <div style={S.omnipodCellEmphasis}>Do not use "Sensordaten verwenden" unless instructed</div>
+                  <div style={S.omnipodCellSub}>Do not use "Sensordaten verwenden" unless instructed</div>
                 </div>
               </div>
             </div>
