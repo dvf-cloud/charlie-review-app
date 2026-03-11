@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 
 const AIRTABLE_TOKEN = process.env.NEXT_PUBLIC_AIRTABLE_TOKEN;
@@ -242,28 +242,72 @@ export default function ReviewPage() {
   const isModeA = modeRaw.toLowerCase().includes('mode a');
   const isModeB = modeRaw.toLowerCase().includes('mode b');
   const parsed = parseHerleitung(herleitung);
-  // Build ingredient table from raw recipe data (extracted_menu + nutrition_data)
+  // Nutrition lookup with improved fuzzy matching
+  function lookupNutrition(name, nd) {
+    if (!nd) return null;
+    const n = name.toLowerCase();
+    // Direct key match
+    let key = Object.keys(nd).find(k => n.includes(k.toLowerCase()));
+    if (!key) key = Object.keys(nd).find(k => k.toLowerCase().includes(n.split(' ')[0]));
+    // Manual overrides for common German ingredient names
+    const overrides = {
+      'milch': 'milch', 'eier': 'eier', 'ei ': 'eier', 'butter': 'butter',
+      'kartoffel': 'kartoffeln', 'erbsen': 'erbsen', 'karotten': 'karotten',
+      'gurken': 'gurken', 'banane': 'banane', 'beeren': 'beeren', 'joghurt': 'joghurt',
+      'mehl': 'mehl', 'rahm': 'rahm', 'lauch': 'lauch', 'schinken': 'schinken',
+      'käse': 'käse', 'tomaten': 'tomaten', 'kichererbsen': 'kichererbsen',
+      'rote bete': 'rote_bete', 'olivenöl': 'olivenöl', 'öl': 'öl',
+      'zitronensaft': 'zitrone', 'zitrone': 'zitrone',
+    };
+    if (!key) {
+      const overrideKey = Object.keys(overrides).find(k => n.includes(k));
+      if (overrideKey) key = overrides[overrideKey];
+    }
+    return key ? nd[key] : null;
+  }
+
+  // Clustering rules — which ingredients belong together as a component
+  function getCluster(name, modeRaw, dishName) {
+    const n = name.toLowerCase();
+    const mode = modeRaw.toLowerCase();
+    const dish = (dishName || '').toLowerCase();
+    // Kartoffelstock cluster
+    if (dish.includes('kartoffelstock') || mode.includes('mode b')) {
+      if (n.includes('kartoffel') || n.includes('milch') || n.includes('butter')) return 'Kartoffelstock (mashed base)';
+    }
+    // Quiche — pastry vs filling
+    if (dish.includes('quiche')) {
+      if (n.includes('mehl') || (n.includes('butter') && n.includes('2'))) return 'Pastry (Mürbeteig)';
+      if (n.includes('rahm') || n.includes('lauch') || n.includes('schinken') || n.includes('käse') || (n.includes('eier') && !n.includes('mehl'))) return 'Filling';
+    }
+    // Smoothie / blended
+    if (dish.includes('smoothie') || dish.includes('bowl')) return 'Blended mixture';
+    // Hummus
+    if (dish.includes('hummus')) {
+      if (n.includes('kichererbsen') || n.includes('rote bete') || n.includes('olivenöl') || n.includes('zitron')) return 'Hummus';
+      if (n.includes('gemüse') || n.includes('karotte') || n.includes('gurke') || n.includes('paprika')) return 'Vegetable sticks (free)';
+    }
+    return 'Other';
+  }
+
+  // Build ingredient table from raw recipe data
   function buildRecipeIngredients(day, type) {
     if (!extractedMenu || !nutritionData) return [];
     const dishData = extractedMenu?.[day]?.[type];
     if (!dishData) return [];
     const ingredientStr = dishData.ingredients || '';
-    // Parse "Name Xg (original: Y) | Name Xg | ..."
     return ingredientStr.split('|').map(part => {
       const p = part.trim();
-      // Match: "Ingredient Name 1234g" optionally followed by "(original: ...)"
       const match = p.match(/^(.+?)\s+([\d.]+)\s*g/);
       if (!match) return null;
       const name = match[1].trim();
       const weight = parseFloat(match[2]);
-      // Look up carbs in nutritionData — try exact match then fuzzy
-      const key = Object.keys(nutritionData).find(k =>
-        name.toLowerCase().includes(k.toLowerCase()) ||
-        k.toLowerCase().includes(name.toLowerCase().split(' ')[0])
-      );
-      const per100 = key ? nutritionData[key].carbs_per_100g : null;
+      const nutrition = lookupNutrition(name, nutritionData);
+      const per100 = nutrition ? nutrition.carbs_per_100g : null;
       const totalCarb = per100 !== null ? Math.round((weight * per100 / 100) * 10) / 10 : null;
-      return { name, weight, per100, total: totalCarb, free: per100 === 0 || per100 === null };
+      const isFree = per100 !== null && per100 < 2;
+      const cluster = getCluster(name, modeRaw, mealData?.dish_name);
+      return { name, weight, per100, total: totalCarb, free: isFree, cluster };
     }).filter(Boolean);
   }
 
@@ -271,11 +315,24 @@ export default function ReviewPage() {
   const useRecipeTable = recipeIngredients.length > 0;
 
   const allIngredients = useRecipeTable ? recipeIngredients : [
-    ...carbFoods.map(f => ({ name: f.food, weight: f.portion_g, per100: f.carbs_per_100g, total: f.carbs_g, free: false })),
-    ...freeFoods.map(f => ({ name: f.food, weight: f.portion_g, per100: null, total: null, free: true })),
+    ...carbFoods.map(f => ({ name: f.food, weight: f.portion_g, per100: f.carbs_per_100g, total: f.carbs_g, free: false, cluster: 'Main' })),
+    ...freeFoods.map(f => ({ name: f.food, weight: f.portion_g, per100: null, total: null, free: true, cluster: 'Free' })),
   ];
+
+  // Split into carb and free groups, then cluster carb ones
+  const carbIngredients = allIngredients.filter(i => !i.free);
+  const freeIngredients = allIngredients.filter(i => i.free);
+
+  // Group carb ingredients by cluster
+  const carbClusters = {};
+  carbIngredients.forEach(ing => {
+    const c = ing.cluster || 'Main';
+    if (!carbClusters[c]) carbClusters[c] = [];
+    carbClusters[c].push(ing);
+  });
+
   const totalWeight = allIngredients.reduce((s, i) => s + (i.weight || 0), 0);
-  const tableTotal = allIngredients.reduce((s, i) => s + (i.total || 0), 0);
+  const tableTotal = Math.round(carbIngredients.reduce((s, i) => s + (i.total || 0), 0) * 10) / 10;
 
   return (
     <div style={S.page}>
@@ -408,7 +465,7 @@ export default function ReviewPage() {
             {allIngredients.length > 0 && (
               <div style={{marginBottom:'0.5rem'}}>
                 <button style={S.tableToggleBtn} onClick={() => setTableOpen(o => !o)}>
-                  <span>📋 Full Ingredient Table</span>
+                  <span>📋 Full Ingredient Table (recipe quantities)</span>
                   <span>{tableOpen ? '▲ Hide' : '▼ Show'}</span>
                 </button>
                 {tableOpen && (
@@ -422,19 +479,80 @@ export default function ReviewPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {allIngredients.map((ing, i) => (
-                        <tr key={i}>
-                          <td style={S.td}>{ing.name}</td>
-                          <td style={S.tdRight}>{ing.weight}g</td>
-                          <td style={ing.per100 === null ? {...S.tdRight, color:'#9ca3af'} : S.tdRight}>{ing.per100 === null ? '—' : `${ing.per100}g`}</td>
-                          <td style={ing.total === null ? S.tdFree : (ing.total === 0 ? S.tdFree : S.tdCarbs)}>{ing.total === null ? '?' : ing.total === 0 ? 'free' : `${roundCarbs(ing.total)}g`}</td>
-                        </tr>
-                      ))}
+                      {/* CARB INGREDIENTS — grouped by cluster */}
+                      {Object.entries(carbClusters).map(([clusterName, ings]) => {
+                        const clusterTotal = Math.round(ings.reduce((s, i) => s + (i.total || 0), 0) * 10) / 10;
+                        const clusterWeight = ings.reduce((s, i) => s + (i.weight || 0), 0);
+                        const showCluster = Object.keys(carbClusters).length > 1 || clusterName !== 'Other';
+                        return (
+                          <React.Fragment key={clusterName}>
+                            {showCluster && (
+                              <tr>
+                                <td colSpan={4} style={{
+                                  padding: '0.4rem 0.7rem',
+                                  background: BLUE_LIGHT,
+                                  color: BLUE,
+                                  fontSize: '0.7rem',
+                                  fontWeight: 700,
+                                  letterSpacing: '0.07em',
+                                  textTransform: 'uppercase',
+                                  borderBottom: `1px solid ${BLUE_BORDER}`,
+                                }}>{clusterName}</td>
+                              </tr>
+                            )}
+                            {ings.map((ing, i) => (
+                              <tr key={i}>
+                                <td style={S.td}>{ing.name}</td>
+                                <td style={S.tdRight}>{ing.weight}g</td>
+                                <td style={S.tdRight}>{ing.per100 !== null ? `${ing.per100}g` : '—'}</td>
+                                <td style={S.tdCarbs}>{ing.total !== null ? `${roundCarbs(ing.total)}g` : '?'}</td>
+                              </tr>
+                            ))}
+                            {showCluster && (
+                              <tr>
+                                <td style={{...S.td, fontWeight:600, color:'#374151', background:'#f9fafb', borderTop:`1px solid ${BORDER}`}}>↳ {clusterName} subtotal</td>
+                                <td style={{...S.tdRight, fontWeight:600, background:'#f9fafb', borderTop:`1px solid ${BORDER}`}}>{clusterWeight}g</td>
+                                <td style={{...S.tdRight, background:'#f9fafb', borderTop:`1px solid ${BORDER}`}}></td>
+                                <td style={{...S.tdCarbs, fontWeight:700, background:'#f9fafb', borderTop:`1px solid ${BORDER}`}}>{clusterTotal}g</td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+
+                      {/* FREE INGREDIENTS */}
+                      {freeIngredients.length > 0 && (
+                        <React.Fragment>
+                          <tr>
+                            <td colSpan={4} style={{
+                              padding: '0.4rem 0.7rem',
+                              background: '#f9fafb',
+                              color: '#6b7280',
+                              fontSize: '0.7rem',
+                              fontWeight: 700,
+                              letterSpacing: '0.07em',
+                              textTransform: 'uppercase',
+                              borderBottom: `1px solid ${BORDER}`,
+                              borderTop: `2px solid ${BORDER}`,
+                            }}>Free Foods (not counted)</td>
+                          </tr>
+                          {freeIngredients.map((ing, i) => (
+                            <tr key={i}>
+                              <td style={{...S.td, color:'#9ca3af'}}>{ing.name}</td>
+                              <td style={{...S.tdRight, color:'#9ca3af'}}>{ing.weight}g</td>
+                              <td style={{...S.tdRight, color:'#9ca3af'}}>{ing.per100 !== null ? `${ing.per100}g` : '—'}</td>
+                              <td style={{...S.tdFree}}>free</td>
+                            </tr>
+                          ))}
+                        </React.Fragment>
+                      )}
+
+                      {/* GRAND TOTAL */}
                       <tr>
-                        <td style={S.tdTotalLabel}>Total</td>
+                        <td style={S.tdTotalLabel}>Total carbs in recipe</td>
                         <td style={S.tdTotalRight}>{totalWeight}g</td>
                         <td style={S.tdTotalRight}></td>
-                        <td style={S.tdTotalCarbs}>{roundCarbs(useRecipeTable ? tableTotal : totalCarbs)}g</td>
+                        <td style={S.tdTotalCarbs}>{tableTotal}g</td>
                       </tr>
                     </tbody>
                   </table>
