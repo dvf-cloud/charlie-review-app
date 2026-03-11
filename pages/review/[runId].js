@@ -126,11 +126,11 @@ export default function ReviewPage() {
 
     // Blue pill row — ABOVE the dish name box, outside the blue section
     pillRow: { display: 'flex', gap: '0.5rem', padding: '1.4rem 1.8rem 0' },
-    pill: { display: 'inline-flex', alignItems: 'center', gap: '0.3rem', background: BLUE_LIGHT, color: BLUE, border: `1px solid ${BLUE_BORDER}`, borderRadius: 20, padding: '0.25rem 0.85rem', fontSize: '0.8rem', fontWeight: 600 },
+    pill: { display: 'inline-flex', alignItems: 'center', gap: '0.3rem', background: 'white', color: BLUE, border: `2px solid ${BLUE}`, borderRadius: 10, padding: '0.25rem 0.85rem', fontSize: '0.8rem', fontWeight: 600 },
 
     // Dish name box — white bg, blue border (inverted from before)
-    dishBox: { margin: '0.8rem 1.8rem 0', padding: '1rem 1.4rem', border: `2px solid ${BLUE}`, borderRadius: 12, background: 'white' },
-    mealName: { margin: 0, fontSize: '1.2rem', fontWeight: 600, lineHeight: 1.3, color: BLUE },
+    dishBox: { margin: '0.6rem 1.8rem 0', padding: '0.6rem 0 0' },
+    mealName: { margin: 0, fontSize: '1.2rem', fontWeight: 600, lineHeight: 1.3, color: '#1f2937' },
 
     cardBody: { padding: '1.4rem 1.8rem' },
 
@@ -160,6 +160,7 @@ export default function ReviewPage() {
     omnipodRounded: { color: '#1e1b4b', fontSize: '1.0rem', fontWeight: 700, textDecoration: 'underline' },
     omnipodCellValue: { color: '#1e1b4b', fontSize: '0.9rem', fontWeight: 600 },
     omnipodCellSub: { color: GRAY_MID, fontSize: '0.72rem', marginTop: '0.2rem', lineHeight: 1.4 },
+    omnipodCellEmphasis: { color: '#1e1b4b', fontSize: '0.92rem', fontWeight: 700, marginTop: '0.2rem', lineHeight: 1.4 },
 
     // Nachschlag — light blue box
     nachschlagBox: { background: BLUE_LIGHT, border: `1.5px solid ${BLUE_BORDER}`, borderRadius: 10, padding: '0.85rem 1rem', marginBottom: '1.4rem', fontSize: '0.88rem', color: '#1e3a6e', lineHeight: 1.65 },
@@ -300,6 +301,7 @@ export default function ReviewPage() {
                   <div style={S.omnipodCellLabel}>Omnipod Carb Entry</div>
                   <div style={S.omnipodCalc}>Calculated {roundCarbs(totalCarbs)}g</div>
                   <div style={S.omnipodRounded}>Rounded {roundInt(totalCarbs)}g</div>
+                  <div style={S.omnipodCellSub}>for primary serving</div>
                 </div>
                 {/* Divider */}
                 <div style={S.omnipodDivider} />
@@ -307,15 +309,14 @@ export default function ReviewPage() {
                 <div style={S.omnipodCell}>
                   <div style={S.omnipodCellLabel}>Glycemic Speed</div>
                   <div style={S.omnipodCellValue}>{glycemicSpeed === 'fast' ? '⚡ Fast acting' : '🐢 Slow acting'}</div>
-                  <div style={S.omnipodCellSub}>{glycemicSpeed === 'fast' ? '⏱ Wait 10 min before meal' : '✓ No waiting needed'}</div>
+                  <div style={S.omnipodCellEmphasis}>{glycemicSpeed === 'fast' ? '⏱ Wait 10 min before meal' : '✓ No waiting needed'}</div>
                 </div>
                 {/* Divider */}
                 <div style={S.omnipodDivider} />
                 {/* Col 3 */}
                 <div style={S.omnipodCell}>
                   <div style={S.omnipodCellLabel}>Important</div>
-                  <div style={S.omnipodCellValue}>Do not use</div>
-                  <div style={S.omnipodCellSub}>"Sensordaten verwenden" unless instructed</div>
+                  <div style={S.omnipodCellEmphasis}>Do not use "Sensordaten verwenden" unless instructed</div>
                 </div>
               </div>
             </div>
@@ -323,7 +324,7 @@ export default function ReviewPage() {
             {/* 3 — NACHSCHLAG — light blue */}
             {nachschlag && nachschlag.carb_foods && nachschlag.carb_foods.length > 0 && (
               <div style={{marginBottom:'1.4rem'}}>
-                <div style={S.sectionLabel}>Nachschlag</div>
+                <div style={S.sectionLabel}>If She Wants More (Seconds)</div>
                 <div style={S.nachschlagBox}>
                   {nachschlag.carb_foods.map((f, i) => (
                     <div key={i}>
@@ -343,6 +344,11 @@ export default function ReviewPage() {
                     <div style={{marginBottom: parsed.carbLines ? '1rem' : 0}}>
                       <div style={S.parentalSubLabel}>Dish Understanding</div>
                       <p style={S.parentalDishText}>{parsed.dishText}</p>
+                      {freeFoods.length > 0 && (
+                        <p style={{...S.parentalDishText, margin: 0, color: '#6b7280', fontStyle: 'italic'}}>
+                          Not counted: {freeFoods.map(f => f.food).join(', ')} — served as separate components, carb-free.
+                        </p>
+                      )}
                     </div>
                   )}
                   {parsed.carbLines && parsed.carbLines.length > 0 && (
