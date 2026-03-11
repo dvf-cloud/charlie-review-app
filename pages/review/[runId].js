@@ -531,7 +531,7 @@ export default function ReviewPage() {
                             {showCluster && (
                               <tr>
                                 <td style={{...S.td, fontWeight:600, color:'#374151', background:'#f9fafb', borderTop:`1px solid ${BORDER}`}}>↳ {clusterName} subtotal</td>
-                                <td style={{...S.tdRight, fontWeight:600, background:'#f9fafb', borderTop:`1px solid ${BORDER}`}}></td>
+                                <td style={{...S.tdRight, fontWeight:600, color:'#374151', background:'#f9fafb', borderTop:`1px solid ${BORDER}`}}>{clusterWeight}g</td>
                                 <td style={{...S.tdRight, background:'#f9fafb', borderTop:`1px solid ${BORDER}`}}></td>
                                 <td style={{...S.tdCarbs, fontWeight:700, background:'#f9fafb', borderTop:`1px solid ${BORDER}`}}>{clusterTotal}g</td>
                               </tr>
