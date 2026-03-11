@@ -233,6 +233,11 @@ export default function ReviewPage() {
   const carbFoods = mealData?.carb_foods || [];
   const freeFoods = mealData?.free_foods || [];
   const totalCarbs = mealData?.total_carbs_g ?? mealData?.carb_target_g ?? 0;
+  // Charlie's portion size — sum of all served components (carb + free foods)
+  const portionSize = Math.round(
+    [...(mealData?.carb_foods || []), ...(mealData?.free_foods || [])]
+      .reduce((s, f) => s + (f.portion_g || 0), 0)
+  );
   const nachschlag = mealData?.nachschlag;
   const glycemicSpeed = mealData?.glycemic_speed_meal || mealData?.glycemic_speed || '';
   const herleitung = mealsJson?.[meal.day]?.[meal.type]?.herleitung || null;
@@ -251,7 +256,7 @@ export default function ReviewPage() {
     'spinat', 'zucchini', 'sellerie', 'rüebli', 'randen', 'blattsalat',
     // Protein / fat (negligible carbs)
     'eier', 'ei ', 'spiegelei', 'schinken', 'fleisch', 'hähnchen', 'poulet',
-    // Dressings (tiny amounts)
+    // Dressings (tiny amounts, but show in cluster — only free at recipe scale)
     'öl', 'olivenöl', 'essig', 'zitronensaft', 'zitrone',
   ];
 
@@ -283,25 +288,37 @@ export default function ReviewPage() {
     return key ? nd[key] : null;
   }
 
-  // Clustering rules — which ingredients belong together as a component
+  // Clustering rules — group by dish component on the plate
   function getCluster(name, modeRaw, dishName) {
     const n = name.toLowerCase();
     const dish = (dishName || '').toLowerCase();
-    // Kartoffelstock cluster — potatoes, milk AND butter all go in
+
+    // KARTOFFELSTOCK DAY
     if (dish.includes('kartoffelstock') || modeRaw.toLowerCase().includes('mode b')) {
-      if (n.includes('kartoffel') || n.includes('milch') || n.includes('butter')) return 'Kartoffelstock (mashed base)';
+      if (n.includes('kartoffel') || n.includes('milch') || n.includes('butter')) return 'Kartoffelstock';
+      if (n.includes('erbsen') || n.includes('karotten') || n.includes('rüebli')) return 'Erbsen & Karotten';
+      if (n.includes('gurken') || n.includes('öl') || n.includes('essig') || n.includes('zitron')) return 'Gurkensalat';
+      if (n.includes('eier') || n.includes('ei ')) return 'Spiegelei';
     }
-    // Quiche — pastry vs filling
+
+    // QUICHE DAY — everything in one quiche cluster + tomatensalat separate
     if (dish.includes('quiche')) {
-      if (n.includes('mehl') || n.includes('butter')) return 'Pastry (Mürbeteig)';
-      if (n.includes('rahm') || n.includes('lauch') || n.includes('schinken') || n.includes('käse') || n.includes('eier')) return 'Filling';
+      if (n.includes('tomaten') || n.includes('randen') || n.includes('randensalat')) return 'Tomatensalat / side salad';
+      // Öl and Essig/Zitrone in small amounts → dressing for salad
+      if ((n.includes('öl') || n.includes('essig') || n.includes('zitron')) && dish.includes('tomatensalat')) return 'Tomatensalat / side salad';
+      // Everything else → Quiche Lorraine
+      return 'Quiche Lorraine';
     }
-    // Smoothie / blended
-    if (dish.includes('smoothie') || dish.includes('bowl')) return 'Blended mixture';
-    // Hummus
+
+    // SMOOTHIE / BLENDED
+    if (dish.includes('smoothie') || dish.includes('bowl')) return 'Smoothie Bowl';
+
+    // HUMMUS
     if (dish.includes('hummus')) {
-      if (n.includes('kichererbsen') || n.includes('rote bete') || n.includes('olivenöl') || n.includes('zitron')) return 'Hummus';
+      if (n.includes('gemüsesticks') || n.includes('karotte') || n.includes('gurke') || n.includes('paprika')) return 'Gemüsesticks';
+      return 'Pinker Hummus';
     }
+
     return 'Main';
   }
 
@@ -339,16 +356,22 @@ export default function ReviewPage() {
     ...freeFoods.map(f => ({ name: f.food, weight: f.portion_g, displayQty: `${f.portion_g}g`, per100: null, total: null, free: true, cluster: 'Free' })),
   ];
 
-  // Split into carb and free groups, then cluster carb ones
-  const carbIngredients = allIngredients.filter(i => !i.free);
-  const freeIngredients = allIngredients.filter(i => i.free);
-
-  // Group carb ingredients by cluster
-  const carbClusters = {};
-  carbIngredients.forEach(ing => {
+  // Group ALL ingredients by cluster (free ones included in their dish cluster)
+  const allClusters = {};
+  allIngredients.forEach(ing => {
     const c = ing.cluster || 'Main';
-    if (!carbClusters[c]) carbClusters[c] = [];
-    carbClusters[c].push(ing);
+    if (!allClusters[c]) allClusters[c] = [];
+    allClusters[c].push(ing);
+  });
+
+  // Separate free section only for ingredients with cluster === 'free' (fallback)
+  const carbIngredients = allIngredients.filter(i => !i.free);
+  const freeIngredients = allIngredients.filter(i => i.free && i.cluster === 'free');
+
+  // For the cluster display, use allClusters but exclude the raw 'free' key
+  const carbClusters = {};
+  Object.entries(allClusters).forEach(([k, v]) => {
+    if (k !== 'free') carbClusters[k] = v;
   });
 
   const totalWeight = allIngredients.reduce((s, i) => s + (i.weight || 0), 0);
@@ -409,17 +432,24 @@ export default function ReviewPage() {
             {/* 2 — OMNIPOD ENTRY — 3 cols, light blue */}
             <div style={{marginBottom:'1.4rem'}}>
               <div style={S.sectionLabel}>Omnipod Entry</div>
-              <div style={S.omnipodBar}>
-                {/* Col 1 */}
+              <div style={{...S.omnipodBar, gridTemplateColumns: '1fr 1px 1fr 1px 1fr 1px 1fr'}}>
+                {/* Col 0 — Portion Size */}
                 <div style={S.omnipodCellFirst}>
-                  <div style={S.omnipodCellLabel}>Omnipod Carb Entry</div>
-                  <div style={S.omnipodCalc}>Calculated {roundCarbs(totalCarbs)}g</div>
-                  <div style={S.omnipodRounded}>Rounded {roundInt(totalCarbs)}g</div>
-                  <div style={S.omnipodCellSub}>for primary serving</div>
+                  <div style={S.omnipodCellLabel}>Portion Size</div>
+                  <div style={S.omnipodRounded}>{portionSize}g</div>
+                  <div style={S.omnipodCellSub}>Charlie's serving</div>
                 </div>
                 {/* Divider */}
                 <div style={S.omnipodDivider} />
-                {/* Col 2 */}
+                {/* Col 1 — Carb Entry */}
+                <div style={S.omnipodCell}>
+                  <div style={S.omnipodCellLabel}>Omnipod Carb Entry</div>
+                  <div style={S.omnipodCalc}>Calculated {roundCarbs(totalCarbs)}g</div>
+                  <div style={S.omnipodRounded}>Rounded {roundInt(totalCarbs)}g</div>
+                </div>
+                {/* Divider */}
+                <div style={S.omnipodDivider} />
+                {/* Col 2 — Glycemic Speed */}
                 <div style={S.omnipodCell}>
                   <div style={S.omnipodCellLabel}>Glycemic Speed</div>
                   <div style={S.omnipodCellValue}>{glycemicSpeed === 'fast' ? '⚡ Fast acting' : '🐢 Slow acting'}</div>
@@ -427,7 +457,7 @@ export default function ReviewPage() {
                 </div>
                 {/* Divider */}
                 <div style={S.omnipodDivider} />
-                {/* Col 3 */}
+                {/* Col 3 — Warning */}
                 <div style={S.omnipodCell}>
                   <div style={S.omnipodCellLabel}>Important</div>
                   <div style={S.omnipodCellEmphasis}>Do not use "Sensordaten verwenden" unless instructed</div>
@@ -501,9 +531,9 @@ export default function ReviewPage() {
                     <tbody>
                       {/* CARB INGREDIENTS — grouped by cluster */}
                       {Object.entries(carbClusters).map(([clusterName, ings]) => {
-                        const clusterTotal = Math.round(ings.reduce((s, i) => s + (i.total || 0), 0) * 10) / 10;
+                        const clusterTotal = Math.round(ings.filter(i => !i.free).reduce((s, i) => s + (i.total || 0), 0) * 10) / 10;
                         const clusterWeight = ings.reduce((s, i) => s + (i.weight || 0), 0);
-                        const showCluster = Object.keys(carbClusters).length > 1 || clusterName !== 'Other';
+                        const showCluster = true;
                         return (
                           <React.Fragment key={clusterName}>
                             {showCluster && (
@@ -540,7 +570,7 @@ export default function ReviewPage() {
                         );
                       })}
 
-                      {/* FREE INGREDIENTS */}
+                      {/* FREE INGREDIENTS — fallback only */}
                       {freeIngredients.length > 0 && (
                         <React.Fragment>
                           <tr>
@@ -578,6 +608,7 @@ export default function ReviewPage() {
                   </table>
                 )}
               </div>
+              {tableOpen && <div style={{fontSize:'0.75rem', color:'#9ca3af', marginTop:'0.4rem', fontStyle:'italic'}}>* Free food — not counted in carb calculation</div>}
             )}
 
           </div>
