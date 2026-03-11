@@ -222,8 +222,9 @@ export default function ReviewPage() {
             (() => {
               const msg = (record?.kindergarten_message || '').replace(/\\n/g, '\n');
               const closing = 'Please tell us if Charlotte did not finish her portion. Do not force her to eat — if she does not feel like eating, that is completely fine.';
-              const stripped = msg.split(closing).join('').replace(/\n{3,}/g, '\n\n').trim();
-              return stripped + '\n\n' + closing;
+              const sensorWarning = '⚠️ Do not use "Sensordaten verwenden" unless instructed otherwise.';
+              const stripped = msg.split(closing).join('').split(sensorWarning).join('').replace(/\n{3,}/g, '\n\n').trim();
+              return stripped + '\n\n' + sensorWarning + '\n\n' + closing;
             })()
           }</div>
           <button style={S.copyBtn} onClick={() => { navigator.clipboard.writeText(record?.kindergarten_message?.replace(/\\n/g, '\n') || ''); alert('Copied!'); }}>📋 Copy to clipboard</button>
@@ -468,12 +469,15 @@ export default function ReviewPage() {
 
             {/* 2 — OMNIPOD ENTRY — 3 cols, light blue */}
             <div style={{marginBottom:'1.4rem'}}>
-              <div style={S.sectionLabel}>Omnipod Entry</div>
+              <div style={{display:'flex', alignItems:'center', gap:'0.5rem', marginBottom:'0.6rem'}}>
+                <div style={{...S.sectionLabel, marginBottom:0}}>Omnipod Entry</div>
+                <div style={{fontSize:'0.72rem', color:'#6b7280', fontStyle:'italic'}}>⚠️ Do not use "Sensordaten verwenden" unless instructed otherwise.</div>
+              </div>
               <div style={{...S.omnipodBar, gridTemplateColumns: '1fr 1px 1fr 1px 1fr'}}>
                 {/* Col 0 — Portion Size */}
                 <div style={S.omnipodCellFirst}>
                   <div style={S.omnipodCellLabel}>Portion Size</div>
-                  <div style={S.omnipodText}>{portionSize}g {carbFoodName}</div>
+                  <div style={S.omnipodText}><strong>{portionSize}g {carbFoodName}</strong></div>
                   {freeFoodNames && <div style={{...S.omnipodCellSub, marginTop:'0.3rem'}}>+ sides not counted: {freeFoodNames}</div>}
                 </div>
                 {/* Divider */}
@@ -495,9 +499,7 @@ export default function ReviewPage() {
 
               </div>
             </div>
-            <div style={{fontSize:'0.75rem', color:'#6b7280', marginTop:'0.5rem', marginBottom:'1.4rem', fontStyle:'italic'}}>
-              ⚠️ Do not use "Sensordaten verwenden" unless instructed by your diabetes team.
-            </div>
+
 
             {/* 3 — NACHSCHLAG — light blue */}
             {nachschlag && nachschlag.carb_foods && nachschlag.carb_foods.length > 0 && (
