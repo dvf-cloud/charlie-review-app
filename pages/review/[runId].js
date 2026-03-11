@@ -113,6 +113,7 @@ export default function ReviewPage() {
   const GRAY_MID = '#6b7280';
   const BORDER = '#e5e7eb';
   const roundCarbs = (v) => typeof v === 'number' ? Math.round(v * 10) / 10 : v;
+  const cleanFoodName = (name) => (name || '').replace(/\s*\([^)]*\)/g, '').trim();
   const roundInt = (v) => typeof v === 'number' ? Math.round(v) : v;
 
   const S = {
@@ -242,13 +243,13 @@ export default function ReviewPage() {
   const carbFoods = mealData?.carb_foods || [];
   const freeFoods = mealData?.free_foods || [];
   const totalCarbs = mealData?.total_carbs_g ?? mealData?.carb_target_g ?? 0;
-  // Charlie's portion size — carb foods only (the weighed/counted component)
-  const portionSize = Math.round(
-    (mealData?.carb_foods || []).reduce((s, f) => s + (f.portion_g || 0), 0)
-  );
-  // Portion description — carb component name only (e.g. "Kartoffelstock" not full dish name)
-  const carbFoodName = (mealData?.carb_foods || [])[0]?.food || mealData?.dish_name || '';
-  const freeFoodNames = (mealData?.free_foods || []).map(f => f.food).join(', ');
+  // Charlie's carb foods — cleaned names, individual portions
+  const carbFoodItems = (mealData?.carb_foods || []).map(f => ({
+    ...f,
+    cleanName: cleanFoodName(f.food)
+  }));
+  const portionSize = Math.round(carbFoodItems.reduce((s, f) => s + (f.portion_g || 0), 0));
+  const freeFoodNames = (mealData?.free_foods || []).map(f => cleanFoodName(f.food)).join(', ');
   const nachschlag = mealData?.nachschlag;
   const glycemicSpeed = mealData?.glycemic_speed_meal || mealData?.glycemic_speed || '';
   const herleitung = mealsJson?.[meal.day]?.[meal.type]?.herleitung || null;
@@ -261,9 +262,10 @@ export default function ReviewPage() {
   // Free foods — source: University Hospital Zurich Austauschtabelle
   // Vegetables with counted carbs: Erbsen, Mais, Kefen, Maiskolben, Randen — these are NOT in this list
   const FREE_FOODS_LIST = [
-    // Vegetables that are truly free (no meaningful carbs)
-    'karotten', 'gurken', 'gurke', 'karotte', 'tomaten', 'tomate',
-    'brokkoli', 'blumenkohl', 'auberginen', 'aubergine', 'fenchel', 'lauch',
+    // Vegetables that are truly free (no meaningful carbs — per UHZ Austauschtabelle)
+    'karotten', 'gurken', 'gurke', 'karotte', 'rüebli', 'tomaten', 'tomate',
+    'brokkoli', 'blumenkohl', 'auberginen', 'aubergine', 'fenchel', 'lauch', 'lauch',
+    'käse', 'schinken', 'schinkenwürfel', 'butter',
     'nüsslisalat', 'gemüsesticks', 'gemüse', 'paprika', 'zwiebeln', 'zwiebel',
     'spinat', 'zucchini', 'sellerie', 'rüebli', 'blattsalat',
     // Protein / fat
@@ -308,11 +310,27 @@ export default function ReviewPage() {
     return key ? nd[key] : null;
   }
 
-  // Validated nutritional overrides — use when Agent 2 lookup fails or is known wrong
+  // Validated nutritional overrides — source: University Hospital Zurich Austauschtabelle
   const VALIDATED_NUTRITION = {
-    'bio-beeren': { carbs_per_100g: 7 },  // validated: Swiss retail (Migros/Coop frozen mixed berries = 7g/100g)
+    'bio-beeren': { carbs_per_100g: 7 },   // Migros/Coop Swiss retail = 7g/100g
     'beeren': { carbs_per_100g: 7 },
     'tk-beeren': { carbs_per_100g: 7 },
+    'erbsen': { carbs_per_100g: 12.5 },    // UHZ: 80g = 10g KH
+    'mais': { carbs_per_100g: 16.7 },      // UHZ: 60g = 10g KH
+    'kefen': { carbs_per_100g: 10 },       // UHZ: 100g = 10g KH
+    'maiskolben': { carbs_per_100g: 10 },  // UHZ: 100g = 10g KH
+    'randen': { carbs_per_100g: 8.3 },     // UHZ: 120g = 10g KH
+    'rote bete': { carbs_per_100g: 8.3 },  // same as Randen
+    'ketchup': { carbs_per_100g: 25 },     // UHZ: 40g = 10g KH
+    // Free vegetables — force 0g to prevent wrong lookup values
+    'lauch': { carbs_per_100g: 0 },
+    'karotten': { carbs_per_100g: 0 },
+    'gurken': { carbs_per_100g: 0 },
+    'tomaten': { carbs_per_100g: 0 },
+    'paprika': { carbs_per_100g: 0 },
+    'brokkoli': { carbs_per_100g: 0 },
+    'zucchini': { carbs_per_100g: 0 },
+    'spinat': { carbs_per_100g: 0 },
   };
 
   function lookupNutritionWithFallback(name, nd) {
@@ -480,7 +498,9 @@ export default function ReviewPage() {
                 {/* Col 0 — Portion Size */}
                 <div style={S.omnipodCellFirst}>
                   <div style={S.omnipodCellLabel}>Portion Size</div>
-                  <div style={S.omnipodText}><strong>{portionSize}g {carbFoodName}</strong></div>
+                  {carbFoodItems.map((f, i) => (
+                    <div key={i} style={S.omnipodText}><strong>{f.portion_g}g {f.cleanName}</strong></div>
+                  ))}
                   {freeFoodNames && <div style={{...S.omnipodCellSub, marginTop:'0.3rem'}}>+ sides not counted: {freeFoodNames}</div>}
                 </div>
                 {/* Divider */}
@@ -511,7 +531,7 @@ export default function ReviewPage() {
                 <div style={S.nachschlagBox}>
                   {nachschlag.carb_foods.map((f, i) => (
                     <div key={i}>
-                      +{f.portion_g}g {f.food} → enter additional {roundCarbs(f.carbs_g)}g (<strong style={{textDecoration:'underline'}}>{roundInt(f.carbs_g)}g rounded</strong>) in Omnipod
+                      +{f.portion_g}g {cleanFoodName(f.food)} → enter additional {roundCarbs(f.carbs_g)}g (<strong style={{textDecoration:'underline'}}>{roundInt(f.carbs_g)}g rounded</strong>) in Omnipod
                     </div>
                   ))}
                 </div>
