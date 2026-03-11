@@ -245,8 +245,8 @@ export default function ReviewPage() {
   const portionSize = Math.round(
     (mealData?.carb_foods || []).reduce((s, f) => s + (f.portion_g || 0), 0)
   );
-  // Portion description — main carb component name(s)
-  const portionDesc = (mealData?.carb_foods || []).map(f => f.food).join(' + ') || '';
+  // Portion description — just the dish name, clean
+  const portionDesc = mealData?.dish_name || '';
   const nachschlag = mealData?.nachschlag;
   const glycemicSpeed = mealData?.glycemic_speed_meal || mealData?.glycemic_speed || '';
   const herleitung = mealsJson?.[meal.day]?.[meal.type]?.herleitung || null;
@@ -292,44 +292,49 @@ export default function ReviewPage() {
     };
     const overrideKey = Object.keys(overrides).find(k => n.includes(k));
     if (overrideKey) return nd[overrides[overrideKey]] || null;
-    // Fallback fuzzy
+    // Fallback fuzzy — try contains both ways
     let key = Object.keys(nd).find(k => n.includes(k.toLowerCase()));
     if (!key) key = Object.keys(nd).find(k => k.toLowerCase().includes(n.split(' ')[0]));
+    // Last resort — partial stem match (e.g. 'bio-beeren' → key 'beeren')
+    if (!key) {
+      const stem = n.replace(/^bio-/, '').replace(/^tk-/, '').split(' ')[0];
+      key = Object.keys(nd).find(k => k.toLowerCase().includes(stem) || stem.includes(k.toLowerCase()));
+    }
     return key ? nd[key] : null;
   }
 
-  // Clustering rules — group by dish component on the plate
+  // Clustering — dish membership wins, explicit per ingredient
   function getCluster(name, modeRaw, dishName) {
     const n = name.toLowerCase();
     const dish = (dishName || '').toLowerCase();
 
-    // KARTOFFELSTOCK DAY
+    // ── KARTOFFELSTOCK ──
     if (dish.includes('kartoffelstock') || modeRaw.toLowerCase().includes('mode b')) {
       if (n.includes('kartoffel') || n.includes('milch') || n.includes('butter')) return 'Kartoffelstock';
-      if (n.includes('erbsen') || n.includes('karotten') || n.includes('rüebli')) return 'Erbsen & Karotten';
-      if (n.includes('gurken') || n.includes('öl') || n.includes('essig') || n.includes('zitron')) return 'Gurkensalat';
-      if (n.includes('eier') || n.includes('ei ')) return 'Spiegelei';
+      if (n.includes('erbsen')) return 'Erbsen & Karotten';
+      if (n.includes('karotten') || n.includes('karotte') || n.includes('rüebli')) return 'Erbsen & Karotten';
+      if (n.includes('gurken') || n.includes('gurke')) return 'Gurkensalat';
+      if (n.includes('öl') || n.includes('essig') || n.includes('zitron')) return 'Gurkensalat';
+      if (n.includes('eier') || n.includes('ei ') || n.includes('spiegelei')) return 'Spiegelei';
     }
 
-    // QUICHE DAY — explicit assignment, nothing falls through
+    // ── QUICHE ── all filling ingredients stay in Quiche Lorraine cluster
     if (dish.includes('quiche')) {
-      // Tomatensalat side: tomaten + dressing ingredients
+      // Side salad only: tomaten + its dressing
       if (n.includes('tomaten') || n.includes('randen')) return 'Tomatensalat';
       if (n.includes('öl') || n.includes('olivenöl') || n.includes('essig') || n.includes('zitron')) return 'Tomatensalat';
-      // ALL quiche ingredients — mehl, butter, eier, rahm, milch, lauch, schinken, schinkenwürfel, käse
-      if (n.includes('mehl') || n.includes('butter') || n.includes('eier') || n.includes('ei ') ||
-          n.includes('rahm') || n.includes('milch') || n.includes('lauch') ||
-          n.includes('schinken') || n.includes('käse') || n.includes('speck')) return 'Quiche Lorraine';
-      return 'Quiche Lorraine'; // catch-all for quiche day
+      // All quiche ingredients including eggs, schinken, lauch
+      return 'Quiche Lorraine';
     }
 
-    // SMOOTHIE / BLENDED
+    // ── SMOOTHIE BOWL ──
     if (dish.includes('smoothie') || dish.includes('bowl')) return 'Smoothie Bowl';
 
-    // HUMMUS
+    // ── HUMMUS ──
     if (dish.includes('hummus')) {
-      if (n.includes('gemüsesticks') || (n.includes('karotte') && !n.includes('kicher')) || n.includes('gurke') || n.includes('paprika')) return 'Gemüsesticks (free)';
-      // kichererbsen, rote bete, zitronensaft, olivenöl → hummus base
+      // Only gemüsesticks are the free side
+      if (n.includes('gemüsesticks')) return 'Gemüsesticks (free)';
+      // Everything else is part of the hummus: kichererbsen, rote bete, olivenöl, zitronensaft
       return 'Pinker Hummus';
     }
 
@@ -356,9 +361,10 @@ export default function ReviewPage() {
       const nutrition = lookupNutrition(name, nutritionData);
       const per100 = nutrition ? nutrition.carbs_per_100g : null;
       const totalCarb = per100 !== null ? Math.round((weight * per100 / 100) * 10) / 10 : null;
-      const cluster = isFreeFood(name) ? 'free' : getCluster(name, modeRaw, mealData?.dish_name);
-      const isFree = isFreeFood(name) || cluster === 'Gemüsesticks (free)' || (per100 !== null && per100 === 0);
-      // cluster already computed above
+      // Cluster first — dish membership overrides free-food heuristics
+      const cluster = getCluster(name, modeRaw, mealData?.dish_name);
+      const FREE_SIDE_CLUSTERS = ['Erbsen & Karotten', 'Gurkensalat', 'Spiegelei', 'Tomatensalat', 'Gemüsesticks (free)', 'free'];
+      const isFree = FREE_SIDE_CLUSTERS.includes(cluster) || (per100 !== null && per100 === 0);
       return { name, weight, displayQty, per100, total: totalCarb, free: isFree, cluster };
     }).filter(Boolean);
   }
