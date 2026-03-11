@@ -99,6 +99,9 @@ export default function ReviewPage() {
       carbLines = carbRaw.split('\n').map(line => {
         const l = line.trim();
         if (!l) return null;
+        // Arrow lines (→) are summary/result lines — render as text but bold
+        if (l.startsWith('→')) return { type: 'arrow', text: l };
+        // Ingredient lines with × and = are bullet items
         if (l.includes('×') || (l.includes('=') && l.includes('g'))) return { type: 'bullet', text: l };
         return { type: 'text', text: l };
       }).filter(Boolean);
@@ -525,18 +528,27 @@ export default function ReviewPage() {
 
 
             {/* 3 — NACHSCHLAG — light blue */}
-            {nachschlag && nachschlag.carb_foods && nachschlag.carb_foods.length > 0 && (
-              <div style={{marginBottom:'1.4rem'}}>
-                <div style={S.sectionLabel}>If She Wants More (Seconds)</div>
-                <div style={S.nachschlagBox}>
-                  {nachschlag.carb_foods.map((f, i) => (
-                    <div key={i}>
-                      +{f.portion_g}g {cleanFoodName(f.food)} → enter additional {roundCarbs(f.carbs_g)}g (<strong style={{textDecoration:'underline'}}>{roundInt(f.carbs_g)}g rounded</strong>) in Omnipod
-                    </div>
-                  ))}
+            {nachschlag && nachschlag.carb_foods && nachschlag.carb_foods.length > 0 && (() => {
+              const nachschlagTotal = nachschlag.carb_foods.reduce((s, f) => s + (f.carbs_g || 0), 0);
+              const multipleNach = nachschlag.carb_foods.length > 1;
+              return (
+                <div style={{marginBottom:'1.4rem'}}>
+                  <div style={S.sectionLabel}>If She Wants More (Seconds)</div>
+                  <div style={S.nachschlagBox}>
+                    {nachschlag.carb_foods.map((f, i) => (
+                      <div key={i}>
+                        +{f.portion_g}g {cleanFoodName(f.food)} → enter additional {roundCarbs(f.carbs_g)}g (<strong style={{textDecoration:'underline'}}>{roundInt(f.carbs_g)}g rounded</strong>) in Omnipod
+                      </div>
+                    ))}
+                    {multipleNach && (
+                      <div style={{marginTop:'0.5rem', paddingTop:'0.5rem', borderTop:`1px solid ${BLUE_BORDER}`, fontWeight:700}}>
+                        Total for extra portion: enter <strong style={{textDecoration:'underline'}}>{roundInt(nachschlagTotal)}g rounded</strong> in Omnipod
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* 4 — PARENTAL CONTROL */}
             {parsed && (parsed.dishText || parsed.carbLines) && (
@@ -561,6 +573,8 @@ export default function ReviewPage() {
                         {parsed.carbLines.map((line, i) =>
                           line.type === 'bullet'
                             ? <li key={i} style={S.parentalBulletItem}>{line.text}</li>
+                            : line.type === 'arrow'
+                            ? <div key={i} style={{...S.parentalTextLine, fontWeight:600, color: BLUE, marginTop:'0.2rem'}}>{line.text}</div>
                             : <div key={i} style={S.parentalTextLine}>{line.text}</div>
                         )}
                       </ul>
