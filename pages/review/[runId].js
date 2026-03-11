@@ -18,8 +18,10 @@ export default function ReviewPage() {
   const [correctionText, setCorrectionText] = useState('');
   const [phase, setPhase] = useState('loading');
   const [airtableId, setAirtableId] = useState(null);
+  const [tableOpen, setTableOpen] = useState(false);
 
   useEffect(() => { if (!runId) return; fetchRecord(); }, [runId]);
+  useEffect(() => { setTableOpen(false); }, [currentIndex]);
 
   async function fetchRecord() {
     try {
@@ -77,54 +79,55 @@ export default function ReviewPage() {
     } catch (e) { setPhase('error'); }
   }
 
-  // Parse herleitung — extract only DISH UNDERSTANDING and CARB CALCULATION sections,
-  // strip headers already shown in UI, add bullets to calc lines
+  // Parse herleitung — extract Dish Understanding and Carb Calculation only
   function parseHerleitung(text) {
     if (!text) return null;
-
-    // Remove sections we show elsewhere: day/meal header, RULE APPLIED, GLYCEMIC SPEED, OMNIPOD line
-    const skipPatterns = [
-      /^(MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY).*/im,
-      /^RULE APPLIED[\s\S]*?(?=\n[A-Z])/im,
-      /^GLYCEMIC SPEED[\s\S]*?(?=\n[A-Z→]|$)/im,
-      /^→\s*OMNIPOD.*$/im,
-    ];
-
-    // Extract DISH UNDERSTANDING block
-    const dishMatch = text.match(/DISH UNDERSTANDING\n([\s\S]*?)(?=\n[A-Z ]{3,}:|CARB CALCULATION|NOT COUNTED|NACHSCHLAG|GLYCEMIC|→ OMNIPOD|$)/i);
+    const dishMatch = text.match(/DISH UNDERSTANDING\n([\s\S]*?)(?=\nCARB CALCULATION|\nNOT COUNTED|\nNACHSCHLAG|\nGLYCEMIC|→ OMNIPOD|$)/i);
     const dishText = dishMatch ? dishMatch[1].trim() : null;
-
-    // Extract CARB CALCULATION block
     const carbMatch = text.match(/CARB CALCULATION\n([\s\S]*?)(?=\nNOT COUNTED|\nNACHSCHLAG|\nGLYCEMIC|\n→ OMNIPOD|$)/i);
     const carbRaw = carbMatch ? carbMatch[1].trim() : null;
-
-    // Process carb lines — add bullet to ingredient lines (lines with ×)
     let carbLines = null;
     if (carbRaw) {
       carbLines = carbRaw.split('\n').map(line => {
         const l = line.trim();
         if (!l) return null;
-        // Lines with × or = are calculation lines → bullet
-        if (l.includes('×') || (l.includes('=') && l.includes('g'))) return { type: 'bullet', text: l };
-        // Total/summary lines
+        if (l.includes('×') || (l.includes('=') && l.includes('g') && !l.startsWith('Total') && !l.startsWith('Charlie'))) return { type: 'bullet', text: l };
         return { type: 'text', text: l };
       }).filter(Boolean);
     }
-
     return { dishText, carbLines };
+  }
+
+  // Parse ingredients from extractedMenu for the full table
+  function parseIngredients(extractedMenu, day, type) {
+    if (!extractedMenu) return [];
+    try {
+      const menu = typeof extractedMenu === 'string' ? JSON.parse(extractedMenu) : extractedMenu;
+      const ingredientStr = menu?.[day]?.[type]?.ingredients || '';
+      if (!ingredientStr) return [];
+      return ingredientStr.split('|').map(part => {
+        const p = part.trim();
+        const match = p.match(/^(.+?)\s+([\d.]+)\s*g/);
+        if (match) return { name: match[1].trim(), weight: parseFloat(match[2]) };
+        return { name: p, weight: null };
+      }).filter(i => i.name);
+    } catch(e) { return []; }
   }
 
   const BLUE = '#1a6fe8';
   const BLUE_LIGHT = '#e8f0fd';
+  const BLUE_BORDER = '#93c5fd';
   const GRAY_DARK = '#374151';
   const GRAY_MID = '#6b7280';
   const BORDER = '#e5e7eb';
+  const SECTION_LABEL_COLOR = '#111827';
   const roundCarbs = (v) => typeof v === 'number' ? Math.round(v * 10) / 10 : v;
+  const roundInt = (v) => typeof v === 'number' ? Math.round(v) : v;
 
   const S = {
     page: { minHeight: '100vh', background: 'white', fontFamily: "'Georgia', serif" },
     header: { background: 'white', borderBottom: `2px solid ${BLUE}`, padding: '1rem 2rem' },
-    headerTitle: { margin: 0, fontSize: '1.05rem', fontWeight: 500, color: BLUE, letterSpacing: '-0.01em' },
+    headerTitle: { margin: 0, fontSize: '1.05rem', fontWeight: 500, color: BLUE },
     headerSub: { margin: '0.1rem 0 0', fontSize: '0.8rem', color: GRAY_MID },
     progress: { background: 'white', padding: '0.85rem 2rem', borderBottom: `1px solid ${BORDER}`, display: 'flex', gap: '0.5rem', alignItems: 'center' },
     progressDot: (i, corrected) => ({
@@ -133,56 +136,65 @@ export default function ReviewPage() {
       background: i < currentIndex ? (corrected ? '#f97316' : '#16a34a') : i === currentIndex ? BLUE : '#e5e7eb',
       color: i <= currentIndex ? 'white' : '#9ca3af',
     }),
-    content: { maxWidth: 660, margin: '2rem auto', padding: '0 1rem 3rem' },
-    card: { background: 'white', borderRadius: 16, boxShadow: '0 2px 20px rgba(0,0,0,0.08)', overflow: 'hidden', marginBottom: '1.5rem', border: `1px solid ${BORDER}` },
+    content: { maxWidth: 660, margin: '0 auto', padding: '0 1rem 3rem' },
+    card: { background: 'white', borderRadius: 0, overflow: 'hidden', marginBottom: '1.5rem' },
 
-    // Card header
-    cardHeader: { background: `linear-gradient(135deg, ${BLUE} 0%, #1254c0 100%)`, padding: '1.4rem 1.8rem', color: 'white' },
-    bubbleRow: { display: 'flex', gap: '0.5rem', marginBottom: '0.7rem', alignItems: 'center' },
-    bubble: { display: 'inline-flex', alignItems: 'center', gap: '0.3rem', background: 'rgba(255,255,255,0.18)', borderRadius: 20, padding: '0.22rem 0.75rem', fontSize: '0.78rem', fontWeight: 600, letterSpacing: '0.02em' },
-    mealName: { margin: 0, fontSize: '1.25rem', fontWeight: 600, lineHeight: 1.3, letterSpacing: '-0.01em' },
+    // Above-card pill row — day | meal type
+    pillRow: { display: 'flex', gap: '0.5rem', padding: '1.2rem 1rem 0.6rem' },
+    pill: { display: 'inline-flex', alignItems: 'center', gap: '0.3rem', background: BLUE_LIGHT, color: BLUE, borderRadius: 20, padding: '0.28rem 0.9rem', fontSize: '0.82rem', fontWeight: 600, border: `1px solid ${BLUE_BORDER}` },
 
-    cardBody: { padding: '1.5rem 1.8rem' },
-    sectionLabel: { fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#9ca3af', marginBottom: '0.6rem', marginTop: 0 },
+    // Blue section — now INVERTED: white bg, blue text
+    cardHeader: { background: 'white', border: `2px solid ${BLUE}`, borderRadius: 12, margin: '0 1rem 1.2rem', padding: '1.2rem 1.5rem' },
+    mealName: { margin: 0, fontSize: '1.2rem', fontWeight: 600, lineHeight: 1.3, color: BLUE },
 
-    // Meal Calculation Approach — two options side by side
-    approachRow: { display: 'flex', gap: '0.6rem', marginBottom: '1.4rem' },
+    cardBody: { padding: '0 1rem' },
+
+    sectionLabel: { fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: SECTION_LABEL_COLOR, marginBottom: '0.6rem', marginTop: 0 },
+
+    // Meal Calculation Approach — two options
+    approachRow: { display: 'flex', gap: '0.7rem', marginBottom: '1.4rem' },
     approachOption: (active) => ({
-      flex: 1, borderRadius: 10, padding: '0.7rem 0.9rem', textAlign: 'center', border: `2px solid ${active ? BLUE : BORDER}`,
-      background: active ? BLUE_LIGHT : '#fafafa', transition: 'all 0.2s',
+      flex: 1, borderRadius: 10, padding: '0.8rem 1rem', border: `2px solid ${active ? BLUE : BORDER}`,
+      background: active ? BLUE_LIGHT : '#fafafa',
     }),
-    approachOptionLabel: (active) => ({ fontSize: '0.75rem', fontWeight: 700, color: active ? BLUE : '#9ca3af', letterSpacing: '0.04em', textTransform: 'uppercase' }),
-    approachOptionDesc: (active) => ({ fontSize: '0.78rem', color: active ? '#1e3a6e' : '#9ca3af', marginTop: '0.2rem', lineHeight: 1.3 }),
+    approachOptionTitle: (active) => ({ fontSize: '0.82rem', fontWeight: 700, color: active ? BLUE : '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }),
+    approachOptionDesc: (active) => ({ fontSize: '0.8rem', color: active ? '#1e3a6e' : '#9ca3af', lineHeight: 1.35 }),
 
-    // Carb table
-    table: { width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', marginBottom: '0' },
-    th: { textAlign: 'left', fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#9ca3af', padding: '0.4rem 0.5rem', borderBottom: `2px solid ${BORDER}` },
-    thRight: { textAlign: 'right', fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#9ca3af', padding: '0.4rem 0.5rem', borderBottom: `2px solid ${BORDER}` },
-    td: { padding: '0.5rem 0.5rem', borderBottom: `1px solid #f3f4f6`, color: GRAY_DARK, verticalAlign: 'middle', fontSize: '0.85rem' },
-    tdRight: { padding: '0.5rem 0.5rem', borderBottom: `1px solid #f3f4f6`, color: GRAY_DARK, textAlign: 'right', verticalAlign: 'middle', fontSize: '0.85rem' },
-    tdCarbs: { padding: '0.5rem 0.5rem', borderBottom: `1px solid #f3f4f6`, color: BLUE, fontWeight: 700, textAlign: 'right', verticalAlign: 'middle', fontSize: '0.85rem' },
-    tdFree: { padding: '0.4rem 0.5rem', borderBottom: `1px solid #f3f4f6`, color: '#9ca3af', verticalAlign: 'middle', fontSize: '0.82rem', fontStyle: 'italic' },
+    // Omnipod — lighter background, 3 cols
+    omnipodBar: { background: '#f0f4ff', border: `1px solid ${BLUE_BORDER}`, borderRadius: 12, padding: '1rem 1.2rem', marginBottom: '1.4rem', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0' },
+    omnipodCell: { padding: '0 0.8rem' },
+    omnipodCellFirst: { padding: '0 0.8rem 0 0' },
+    omnipodCellLabel: { color: GRAY_MID, fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', marginBottom: '0.3rem' },
+    omnipodCellValue: { color: '#1e1b4b', fontSize: '1.05rem', fontWeight: 600 },
+    omnipodCellRounded: { color: '#1e1b4b', fontSize: '1.05rem', fontWeight: 700, textDecoration: 'underline' },
+    omnipodCellSub: { color: GRAY_MID, fontSize: '0.72rem', marginTop: '0.2rem', lineHeight: 1.35 },
+    omnipodDivider: { width: 1, background: BLUE_BORDER, margin: '0' },
 
-    // Omnipod bar — 3 columns side by side
-    omnipodBar: { background: '#0f172a', borderRadius: 12, padding: '1rem 1.2rem', marginBottom: '1.4rem', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' },
-    omnipodCell: { padding: '0.2rem 0' },
-    omnipodCellLabel: { color: 'rgba(255,255,255,0.5)', fontSize: '0.62rem', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '0.25rem' },
-    omnipodCellValue: { color: 'white', fontSize: '1.2rem', fontWeight: 600, letterSpacing: '-0.02em' },
-    omnipodCellSub: { color: 'rgba(255,255,255,0.45)', fontSize: '0.68rem', marginTop: '0.15rem', lineHeight: 1.3 },
-    omnipodDivider: { width: 1, background: 'rgba(255,255,255,0.1)', margin: '0 0.2rem' },
-
-    // Nachschlag
-    nachschlagBox: { background: '#fef9ec', border: `1px solid #fde68a`, borderRadius: 10, padding: '0.85rem 1rem', marginBottom: '1.4rem', fontSize: '0.85rem', color: '#78350f', lineHeight: 1.6 },
+    // Nachschlag — light blue
+    nachschlagBox: { background: BLUE_LIGHT, border: `1.5px solid ${BLUE_BORDER}`, borderRadius: 10, padding: '0.85rem 1rem', marginBottom: '1.4rem', fontSize: '0.88rem', color: '#1e3a6e', lineHeight: 1.65 },
 
     // Parental control
-    parentalBox: { background: '#f8f9fa', border: `1px solid ${BORDER}`, borderRadius: 10, padding: '1.1rem 1.2rem', marginBottom: '1rem' },
-    parentalDishText: { fontSize: '0.83rem', color: '#4b5563', lineHeight: 1.7, margin: '0 0 0.8rem 0' },
-    parentalCarbHeader: { fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#9ca3af', marginBottom: '0.4rem' },
-    parentalBulletList: { margin: '0', padding: '0 0 0 1.2rem', listStyle: 'disc' },
-    parentalBulletItem: { fontSize: '0.82rem', color: '#374151', lineHeight: 1.6, padding: '0.05rem 0' },
+    parentalBox: { background: '#f8f9fa', border: `1px solid ${BORDER}`, borderRadius: 10, padding: '1.1rem 1.3rem', marginBottom: '1.4rem' },
+    parentalSubLabel: { fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#1f2937', marginBottom: '0.4rem', marginTop: 0 },
+    parentalDishText: { fontSize: '0.83rem', color: '#374151', lineHeight: 1.75, margin: '0 0 1rem 0' },
+    parentalBulletList: { margin: '0.3rem 0 0', padding: '0 0 0 1.2rem', listStyle: 'disc' },
+    parentalBulletItem: { fontSize: '0.82rem', color: '#374151', lineHeight: 1.7, padding: '0.05rem 0' },
     parentalTextLine: { fontSize: '0.82rem', color: '#6b7280', lineHeight: 1.6, marginTop: '0.3rem', fontStyle: 'italic' },
 
-    actions: { padding: '1.2rem 1.8rem', background: '#fafafa', borderTop: `1px solid ${BORDER}` },
+    // Full ingredient table (collapsible)
+    tableToggle: { width: '100%', background: 'none', border: `1px solid ${BORDER}`, borderRadius: 10, padding: '0.7rem 1rem', fontSize: '0.82rem', fontWeight: 600, color: BLUE, cursor: 'pointer', textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.4rem' },
+    table: { width: '100%', borderCollapse: 'collapse', fontSize: '0.83rem', marginBottom: '1.4rem', border: `1px solid ${BORDER}`, borderRadius: 10, overflow: 'hidden' },
+    th: { textAlign: 'left', fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#9ca3af', padding: '0.5rem 0.7rem', borderBottom: `2px solid ${BORDER}`, background: '#f9fafb' },
+    thRight: { textAlign: 'right', fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#9ca3af', padding: '0.5rem 0.7rem', borderBottom: `2px solid ${BORDER}`, background: '#f9fafb' },
+    td: { padding: '0.5rem 0.7rem', borderBottom: `1px solid #f3f4f6`, color: GRAY_DARK, verticalAlign: 'middle' },
+    tdRight: { padding: '0.5rem 0.7rem', borderBottom: `1px solid #f3f4f6`, color: GRAY_DARK, textAlign: 'right', verticalAlign: 'middle' },
+    tdCarbs: { padding: '0.5rem 0.7rem', borderBottom: `1px solid #f3f4f6`, color: BLUE, fontWeight: 700, textAlign: 'right', verticalAlign: 'middle' },
+    tdFreeTag: { padding: '0.5rem 0.7rem', borderBottom: `1px solid #f3f4f6`, color: '#9ca3af', textAlign: 'right', verticalAlign: 'middle', fontStyle: 'italic', fontSize: '0.78rem' },
+    tdTotalLabel: { padding: '0.6rem 0.7rem', color: '#111827', fontWeight: 700, verticalAlign: 'middle', borderTop: `2px solid ${BORDER}`, borderBottom: 'none', background: '#f9fafb' },
+    tdTotalRight: { padding: '0.6rem 0.7rem', color: '#111827', fontWeight: 700, textAlign: 'right', verticalAlign: 'middle', borderTop: `2px solid ${BORDER}`, borderBottom: 'none', background: '#f9fafb' },
+    tdTotalCarbs: { padding: '0.6rem 0.7rem', color: BLUE, fontWeight: 700, fontSize: '0.95rem', textAlign: 'right', verticalAlign: 'middle', borderTop: `2px solid ${BORDER}`, borderBottom: 'none', background: '#f9fafb' },
+
+    actions: { padding: '1.2rem 1rem', background: '#fafafa', borderTop: `1px solid ${BORDER}` },
     correctionInput: { width: '100%', padding: '0.75rem 1rem', borderRadius: 10, border: `2px solid ${BORDER}`, fontSize: '0.88rem', fontFamily: 'inherit', resize: 'vertical', marginBottom: '0.9rem', outline: 'none', boxSizing: 'border-box', color: GRAY_DARK },
     btnRow: { display: 'flex', gap: '0.75rem' },
     btnApprove: { flex: 1, padding: '0.85rem', borderRadius: 11, border: '2px solid #16a34a', background: '#f0fdf4', color: '#15803d', fontSize: '0.95rem', fontWeight: 600, cursor: 'pointer' },
@@ -192,7 +204,6 @@ export default function ReviewPage() {
     copyBtn: { marginTop: '1rem', padding: '0.8rem 2rem', borderRadius: 11, border: 'none', background: BLUE, color: 'white', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer', width: '100%' },
   };
 
-  // Loading states
   if (phase === 'loading') return <div style={S.page}><div style={{textAlign:'center',padding:'4rem',color:GRAY_MID}}><div style={{fontSize:'2rem',marginBottom:'1rem'}}>⏳</div>Loading Charlie's menu...</div></div>;
   if (phase === 'notfound') return <div style={S.page}><div style={{textAlign:'center',padding:'4rem',color:GRAY_MID}}><div style={{fontSize:'2rem',marginBottom:'1rem'}}>🔍</div>Review not found.</div></div>;
   if (phase === 'error') return <div style={S.page}><div style={{textAlign:'center',padding:'4rem',color:'#ef4444'}}><div style={{fontSize:'2rem',marginBottom:'1rem'}}>⚠️</div>Something went wrong.</div></div>;
@@ -202,7 +213,7 @@ export default function ReviewPage() {
     <div style={S.page}>
       <div style={S.header}><div><h1 style={S.headerTitle}>🩺 Charlie's Meal Review</h1><p style={S.headerSub}>All meals reviewed</p></div></div>
       <div style={S.content}>
-        <div style={S.doneCard}>
+        <div style={{...S.doneCard, marginTop:'2rem'}}>
           <div style={{fontSize:'2.5rem',marginBottom:'0.75rem'}}>✅</div>
           <h2 style={{color:'#1e1b4b',marginBottom:'0.5rem',fontWeight:600}}>All done!</h2>
           <p style={{color:GRAY_MID,marginBottom:'1.5rem',fontSize:'0.9rem'}}>Message for the kindergarten:</p>
@@ -226,19 +237,20 @@ export default function ReviewPage() {
   const herleitung = mealsJson?.[meal.day]?.[meal.type]?.herleitung || null;
   const mealTypeLabel = meal.type === 'Zmittag' ? 'Lunch' : 'Afternoon Snack';
   const mealTypeEmoji = meal.type === 'Zmittag' ? '🍽️' : '🍎';
-  const speedEmoji = glycemicSpeed === 'fast' ? '⚡' : '🐢';
-  const speedLabel = glycemicSpeed === 'fast' ? 'Fast acting' : 'Slow acting';
 
-  // Determine which approach options to show
   const modeRaw = mealData?.mode_applied || '';
   const isModeA = modeRaw.toLowerCase().includes('mode a');
   const isModeB = modeRaw.toLowerCase().includes('mode b');
-
-  // Parse herleitung for parental control section
   const parsed = parseHerleitung(herleitung);
 
-  // Rounded suggestion
-  const roundedSuggestion = Math.round(roundCarbs(totalCarbs));
+  // Build full ingredient table from carbFoods + freeFoods
+  // carbFoods have: food, portion_g, carbs_per_100g, carbs_g
+  // freeFoods have: food, portion_g
+  const allIngredients = [
+    ...carbFoods.map(f => ({ name: f.food, weight: f.portion_g, per100: f.carbs_per_100g, total: f.carbs_g, free: false })),
+    ...freeFoods.map(f => ({ name: f.food, weight: f.portion_g, per100: 0, total: 0, free: true })),
+  ];
+  const totalWeight = allIngredients.reduce((sum, i) => sum + (i.weight || 0), 0);
 
   return (
     <div style={S.page}>
@@ -261,140 +273,95 @@ export default function ReviewPage() {
       </div>
 
       <div style={S.content}>
+
+        {/* PILL ROW — above the blue box */}
+        <div style={S.pillRow}>
+          <span style={S.pill}>{meal.day}</span>
+          <span style={S.pill}>{mealTypeEmoji} {mealTypeLabel}</span>
+        </div>
+
         <div style={S.card}>
 
-          {/* CARD HEADER */}
+          {/* INVERTED HEADER — white bg, blue text/border */}
           <div style={S.cardHeader}>
-            {/* Two bubbles: Day | Meal type + speed */}
-            <div style={S.bubbleRow}>
-              <span style={S.bubble}>{meal.day}</span>
-              <span style={S.bubble}>{mealTypeEmoji} {mealTypeLabel}</span>
-              {glycemicSpeed && (
-                <span style={{...S.bubble, background: glycemicSpeed === 'fast' ? 'rgba(254,226,226,0.85)' : 'rgba(209,250,229,0.85)', color: glycemicSpeed === 'fast' ? '#991b1b' : '#065f46'}}>
-                  {speedEmoji} {speedLabel}
-                </span>
-              )}
-            </div>
             <h2 style={S.mealName}>{mealData?.dish_name || meal.type}</h2>
           </div>
 
           <div style={S.cardBody}>
 
-            {/* MEAL CALCULATION APPROACH */}
+            {/* 1 — MEAL CALCULATION APPROACH */}
             <div style={{marginBottom:'1.4rem'}}>
               <div style={S.sectionLabel}>Meal Calculation Approach</div>
               <div style={S.approachRow}>
-                {/* Mode A */}
                 <div style={S.approachOption(isModeA)}>
-                  <div style={S.approachOptionLabel(isModeA)}>Mode A</div>
-                  <div style={S.approachOptionDesc(isModeA)}>Carb-target first<br/>pasta · rice · bread · quiche</div>
+                  <div style={S.approachOptionTitle(isModeA)}>Carb Target</div>
+                  <div style={S.approachOptionDesc(isModeA)}>e.g. pasta, rice, bread, couscous</div>
                 </div>
-                {/* Mode B */}
                 <div style={S.approachOption(isModeB)}>
-                  <div style={S.approachOptionLabel(isModeB)}>Mode B</div>
-                  <div style={S.approachOptionDesc(isModeB)}>Weight-first<br/>potatoes · root vegetables</div>
-                </div>
-                {/* Blended */}
-                <div style={S.approachOption(!isModeA && !isModeB)}>
-                  <div style={S.approachOptionLabel(!isModeA && !isModeB)}>Blended</div>
-                  <div style={S.approachOptionDesc(!isModeA && !isModeB)}>Mixed dish<br/>smoothie · soup · dip</div>
+                  <div style={S.approachOptionTitle(isModeB)}>Weight Target</div>
+                  <div style={S.approachOptionDesc(isModeB)}>e.g. mashed potatoes, root vegetables</div>
                 </div>
               </div>
             </div>
 
-            {/* CARB CALCULATION TABLE */}
-            {carbFoods.length > 0 && (
-              <div style={{marginBottom:'1.4rem'}}>
-                <div style={S.sectionLabel}>Carb Calculation</div>
-                <table style={S.table}>
-                  <thead>
-                    <tr>
-                      <th style={S.th}>Ingredient</th>
-                      <th style={S.thRight}>Total weight</th>
-                      <th style={S.thRight}>g / 100g</th>
-                      <th style={S.thRight}>Total carbs</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {carbFoods.map((f, i) => (
-                      <tr key={i}>
-                        <td style={S.td}>{f.food}</td>
-                        <td style={S.tdRight}>{f.portion_g}g</td>
-                        <td style={S.tdRight}>{f.carbs_per_100g}g</td>
-                        <td style={S.tdCarbs}>{roundCarbs(f.carbs_g)}g</td>
-                      </tr>
-                    ))}
-                    {freeFoods.map((f, i) => (
-                      <tr key={`free-${i}`}>
-                        <td style={S.tdFree}>{f.food}</td>
-                        <td style={{...S.tdFree, textAlign:'right'}}>{f.portion_g}g</td>
-                        <td style={{...S.tdFree, textAlign:'right'}}>—</td>
-                        <td style={{...S.tdFree, textAlign:'right'}}>free</td>
-                      </tr>
-                    ))}
-                    <tr>
-                      <td style={{...S.td, fontWeight:700, borderTop:`2px solid ${BORDER}`, borderBottom:'none', paddingTop:'0.7rem'}}>Total</td>
-                      <td style={{...S.tdRight, borderTop:`2px solid ${BORDER}`, borderBottom:'none', paddingTop:'0.7rem'}}></td>
-                      <td style={{...S.tdRight, borderTop:`2px solid ${BORDER}`, borderBottom:'none', paddingTop:'0.7rem'}}></td>
-                      <td style={{...S.tdCarbs, fontWeight:700, fontSize:'0.95rem', borderTop:`2px solid ${BORDER}`, borderBottom:'none', paddingTop:'0.7rem'}}>{roundCarbs(totalCarbs)}g</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            {/* OMNIPOD — 3 columns side by side */}
+            {/* 2 — OMNIPOD ENTRY */}
             <div style={{marginBottom:'1.4rem'}}>
               <div style={S.sectionLabel}>Omnipod Entry</div>
               <div style={S.omnipodBar}>
-                {/* Col 1: exact carbs */}
-                <div style={S.omnipodCell}>
-                  <div style={S.omnipodCellLabel}>Enter carbs</div>
-                  <div style={S.omnipodCellValue}>{roundCarbs(totalCarbs)}g</div>
-                  <div style={S.omnipodCellSub}>or rounded: {roundedSuggestion}g</div>
+                {/* Col 1 */}
+                <div style={S.omnipodCellFirst}>
+                  <div style={S.omnipodCellLabel}>Omnipod Carb Entry</div>
+                  <div style={S.omnipodCellValue}>Calculated {roundCarbs(totalCarbs)}g</div>
+                  <div style={S.omnipodCellRounded}>Rounded {roundInt(totalCarbs)}g</div>
                 </div>
-                {/* Col 2: speed + wait */}
-                <div style={{...S.omnipodCell, borderLeft:'1px solid rgba(255,255,255,0.12)', paddingLeft:'0.9rem'}}>
-                  <div style={S.omnipodCellLabel}>Acting speed</div>
-                  <div style={S.omnipodCellValue}>{speedEmoji} {speedLabel}</div>
-                  <div style={S.omnipodCellSub}>{glycemicSpeed === 'fast' ? 'Wait 10 min before meal' : 'No waiting needed'}</div>
+                {/* Divider */}
+                <div style={{borderLeft:`1px solid ${BLUE_BORDER}`, ...S.omnipodCell}}>
+                  <div style={S.omnipodCellLabel}>Glycemic Speed</div>
+                  <div style={S.omnipodCellValue}>{glycemicSpeed === 'fast' ? '⚡ Fast acting' : '🐢 Slow acting'}</div>
+                  <div style={S.omnipodCellSub}>{glycemicSpeed === 'fast' ? '⏱ Wait 10 min before meal' : '✓ No waiting needed'}</div>
                 </div>
-                {/* Col 3: warning */}
-                <div style={{...S.omnipodCell, borderLeft:'1px solid rgba(255,255,255,0.12)', paddingLeft:'0.9rem'}}>
+                {/* Divider */}
+                <div style={{borderLeft:`1px solid ${BLUE_BORDER}`, ...S.omnipodCell}}>
                   <div style={S.omnipodCellLabel}>Important</div>
-                  <div style={{...S.omnipodCellValue, fontSize:'0.85rem', lineHeight:1.4, marginTop:'0.1rem'}}>⚠️ Do not use</div>
-                  <div style={S.omnipodCellSub}>"Sensordaten verwenden" unless instructed</div>
+                  <div style={{...S.omnipodCellValue, fontSize:'0.82rem', lineHeight:1.35}}>Do not use "Sensordaten verwenden"</div>
+                  <div style={S.omnipodCellSub}>unless instructed otherwise</div>
                 </div>
               </div>
             </div>
 
-            {/* NACHSCHLAG */}
+            {/* 3 — NACHSCHLAG */}
             {nachschlag && nachschlag.carb_foods && nachschlag.carb_foods.length > 0 && (
               <div style={{marginBottom:'1.4rem'}}>
                 <div style={S.sectionLabel}>Nachschlag</div>
                 <div style={S.nachschlagBox}>
-                  {nachschlag.carb_foods.map((f, i) => (
-                    <div key={i}>
-                      +{f.portion_g}g {f.food} → enter additional <strong>{roundCarbs(f.carbs_g)}g carbs</strong> in Omnipod
-                    </div>
-                  ))}
+                  {nachschlag.carb_foods.map((f, i) => {
+                    const rounded = roundInt(f.carbs_g);
+                    return (
+                      <div key={i}>
+                        +{f.portion_g}g {f.food} → enter additional{' '}
+                        {roundCarbs(f.carbs_g)}g carbs{' '}
+                        (<strong style={{textDecoration:'underline'}}>{rounded}g rounded</strong>) in Omnipod
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
 
-            {/* PARENTAL CONTROL */}
+            {/* 4 — PARENTAL CONTROL */}
             {parsed && (parsed.dishText || parsed.carbLines) && (
-              <div style={{marginBottom:'0.5rem'}}>
+              <div style={{marginBottom:'1.4rem'}}>
                 <div style={S.sectionLabel}>Parental Control</div>
                 <div style={S.parentalBox}>
-                  {/* Dish Understanding */}
                   {parsed.dishText && (
-                    <p style={S.parentalDishText}><strong>Dish understanding</strong><br/>{parsed.dishText}</p>
+                    <div style={{marginBottom: parsed.carbLines ? '1rem' : 0}}>
+                      <div style={S.parentalSubLabel}>Dish Understanding</div>
+                      <p style={S.parentalDishText}>{parsed.dishText}</p>
+                    </div>
                   )}
-                  {/* Carb Calculation with bullets */}
                   {parsed.carbLines && parsed.carbLines.length > 0 && (
                     <div>
-                      <div style={S.parentalCarbHeader}>Carb calculation</div>
+                      <div style={S.parentalSubLabel}>Carb Calculation</div>
                       <ul style={S.parentalBulletList}>
                         {parsed.carbLines.map((line, i) =>
                           line.type === 'bullet'
@@ -405,6 +372,46 @@ export default function ReviewPage() {
                     </div>
                   )}
                 </div>
+              </div>
+            )}
+
+            {/* 5 — FULL INGREDIENT TABLE (collapsible) */}
+            {allIngredients.length > 0 && (
+              <div style={{marginBottom:'1.4rem'}}>
+                <button style={S.tableToggle} onClick={() => setTableOpen(o => !o)}>
+                  <span>📋 Full Ingredient Table</span>
+                  <span style={{fontSize:'0.9rem'}}>{tableOpen ? '▲ Hide' : '▼ Show'}</span>
+                </button>
+                {tableOpen && (
+                  <table style={S.table}>
+                    <thead>
+                      <tr>
+                        <th style={S.th}>Ingredient</th>
+                        <th style={S.thRight}>Total weight</th>
+                        <th style={S.thRight}>g / 100g</th>
+                        <th style={S.thRight}>Total carbs</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {allIngredients.map((ing, i) => (
+                        <tr key={i}>
+                          <td style={S.td}>{ing.name}</td>
+                          <td style={S.tdRight}>{ing.weight}g</td>
+                          <td style={S.tdRight}>{ing.free ? '—' : `${ing.per100}g`}</td>
+                          <td style={ing.free ? S.tdFreeTag : S.tdCarbs}>
+                            {ing.free ? 'free' : `${roundCarbs(ing.total)}g`}
+                          </td>
+                        </tr>
+                      ))}
+                      <tr>
+                        <td style={S.tdTotalLabel}>Total</td>
+                        <td style={S.tdTotalRight}>{totalWeight}g</td>
+                        <td style={S.tdTotalRight}></td>
+                        <td style={S.tdTotalCarbs}>{roundCarbs(totalCarbs)}g</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                )}
               </div>
             )}
 
