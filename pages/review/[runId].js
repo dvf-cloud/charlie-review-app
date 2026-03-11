@@ -164,11 +164,12 @@ export default function ReviewPage() {
     omnipodCell: { padding: '0 0.6rem' },
     omnipodCellFirst: { padding: '0 0.6rem 0 0' },
     omnipodCellLabel: { color: GRAY_MID, fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', marginBottom: '0.3rem' },
-    omnipodCalc: { color: '#1e1b4b', fontSize: '0.95rem', fontWeight: 500 },
-    omnipodRounded: { color: '#1e1b4b', fontSize: '1.0rem', fontWeight: 700, textDecoration: 'underline' },
-    omnipodCellValue: { color: '#1e1b4b', fontSize: '0.9rem', fontWeight: 600 },
-    omnipodCellSub: { color: GRAY_MID, fontSize: '0.72rem', marginTop: '0.2rem', lineHeight: 1.4 },
-    omnipodCellEmphasis: { color: '#1e1b4b', fontSize: '0.92rem', fontWeight: 700, marginTop: '0.2rem', lineHeight: 1.4 },
+    omnipodText: { color: '#1e1b4b', fontSize: '0.85rem', fontWeight: 400, lineHeight: 1.5 },
+    omnipodRounded: { color: '#1e1b4b', fontSize: '0.85rem', fontWeight: 700, textDecoration: 'underline', display: 'inline' },
+    omnipodCalc: { color: '#1e1b4b', fontSize: '0.85rem', fontWeight: 400 },
+    omnipodCellValue: { color: '#1e1b4b', fontSize: '0.85rem', fontWeight: 400 },
+    omnipodCellSub: { color: '#1e1b4b', fontSize: '0.85rem', fontWeight: 400, lineHeight: 1.5 },
+    omnipodCellEmphasis: { color: '#1e1b4b', fontSize: '0.85rem', fontWeight: 400, lineHeight: 1.5 },
 
     // Nachschlag — light blue box
     nachschlagBox: { background: BLUE_LIGHT, border: `1.5px solid ${BLUE_BORDER}`, borderRadius: 10, padding: '0.85rem 1rem', marginBottom: '1.4rem', fontSize: '0.88rem', color: '#1e3a6e', lineHeight: 1.65 },
@@ -262,8 +263,8 @@ export default function ReviewPage() {
     'brokkoli', 'blumenkohl', 'auberginen', 'aubergine', 'fenchel',
     'nüsslisalat', 'gemüsesticks', 'gemüse', 'paprika', 'zwiebeln', 'zwiebel',
     'spinat', 'zucchini', 'sellerie', 'rüebli', 'randen', 'blattsalat',
-    // Protein / fat (negligible carbs)
-    'eier', 'ei ', 'spiegelei', 'schinken', 'fleisch', 'hähnchen', 'poulet',
+    // Protein / fat (negligible carbs — only when served as standalone)
+    'eier', 'ei ', 'spiegelei', 'fleisch', 'hähnchen', 'poulet',
     // Dressings — oils free, acids negligible
     'öl', 'olivenöl', 'essig',
   ];
@@ -282,8 +283,9 @@ export default function ReviewPage() {
       'milch': 'milch', 'eier': 'eier', 'butter': 'butter',
       'kartoffel': 'kartoffeln', 'erbsen': 'erbsen', 'karotten': 'karotten',
       'karotte': 'karotten', 'gurken': 'gurken', 'gurke': 'gurken',
-      'banane': 'banane', 'beeren': 'beeren', 'joghurt': 'joghurt',
-      'mehl': 'mehl', 'rahm': 'rahm', 'lauch': 'lauch', 'schinken': 'schinken',
+      'bio-beeren': 'beeren', 'beeren': 'beeren', 'banane': 'banane', 'joghurt': 'joghurt',
+      'mehl': 'mehl', 'rahm': 'rahm', 'lauch': 'lauch',
+      'schinken': 'schinken', 'schinkenwürfel': 'schinken', 'schinkenwürfeli': 'schinken',
       'käse': 'käse', 'tomaten': 'tomaten', 'kichererbsen': 'kichererbsen',
       'rote bete': 'rote_bete', 'olivenöl': 'olivenöl', 'öl': 'öl',
       'zitronensaft': 'zitrone', 'zitrone': 'zitrone', 'essig': 'essig',
@@ -309,13 +311,16 @@ export default function ReviewPage() {
       if (n.includes('eier') || n.includes('ei ')) return 'Spiegelei';
     }
 
-    // QUICHE DAY — everything in one quiche cluster + tomatensalat separate
+    // QUICHE DAY — explicit assignment, nothing falls through
     if (dish.includes('quiche')) {
-      // Salad side: tomaten + dressing
-      if (n.includes('tomaten') || n.includes('randen') || n.includes('randensalat')) return 'Tomatensalat';
+      // Tomatensalat side: tomaten + dressing ingredients
+      if (n.includes('tomaten') || n.includes('randen')) return 'Tomatensalat';
       if (n.includes('öl') || n.includes('olivenöl') || n.includes('essig') || n.includes('zitron')) return 'Tomatensalat';
-      // Everything else (mehl, butter, eier, rahm, lauch, schinken, käse) → Quiche
-      return 'Quiche Lorraine';
+      // ALL quiche ingredients — mehl, butter, eier, rahm, milch, lauch, schinken, schinkenwürfel, käse
+      if (n.includes('mehl') || n.includes('butter') || n.includes('eier') || n.includes('ei ') ||
+          n.includes('rahm') || n.includes('milch') || n.includes('lauch') ||
+          n.includes('schinken') || n.includes('käse') || n.includes('speck')) return 'Quiche Lorraine';
+      return 'Quiche Lorraine'; // catch-all for quiche day
     }
 
     // SMOOTHIE / BLENDED
@@ -446,16 +451,15 @@ export default function ReviewPage() {
                 {/* Col 0 — Portion Size */}
                 <div style={S.omnipodCellFirst}>
                   <div style={S.omnipodCellLabel}>Portion Size</div>
-                  <div style={S.omnipodRounded}>{portionSize}g {portionDesc}</div>
-                  <div style={S.omnipodCellSub}>+ free sides unlimited</div>
+                  <div style={S.omnipodText}>{portionSize}g {portionDesc}</div>
                 </div>
                 {/* Divider */}
                 <div style={S.omnipodDivider} />
                 {/* Col 1 — Carb Entry */}
                 <div style={S.omnipodCell}>
                   <div style={S.omnipodCellLabel}>Omnipod Carb Entry</div>
-                  <div style={S.omnipodCalc}>Calculated {roundCarbs(totalCarbs)}g</div>
-                  <div style={S.omnipodRounded}>Rounded {roundInt(totalCarbs)}g</div>
+                  <div style={S.omnipodText}>Calculated {roundCarbs(totalCarbs)}g</div>
+                  <div style={S.omnipodText}>Rounded <span style={S.omnipodRounded}>{roundInt(totalCarbs)}g</span></div>
                 </div>
                 {/* Divider */}
                 <div style={S.omnipodDivider} />
