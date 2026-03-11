@@ -245,8 +245,9 @@ export default function ReviewPage() {
   const portionSize = Math.round(
     (mealData?.carb_foods || []).reduce((s, f) => s + (f.portion_g || 0), 0)
   );
-  // Portion description — just the dish name, clean
-  const portionDesc = mealData?.dish_name || '';
+  // Portion description — carb component name only (e.g. "Kartoffelstock" not full dish name)
+  const carbFoodName = (mealData?.carb_foods || [])[0]?.food || mealData?.dish_name || '';
+  const freeFoodNames = (mealData?.free_foods || []).map(f => f.food).join(', ');
   const nachschlag = mealData?.nachschlag;
   const glycemicSpeed = mealData?.glycemic_speed_meal || mealData?.glycemic_speed || '';
   const herleitung = mealsJson?.[meal.day]?.[meal.type]?.herleitung || null;
@@ -283,7 +284,7 @@ export default function ReviewPage() {
       'milch': 'milch', 'eier': 'eier', 'butter': 'butter',
       'kartoffel': 'kartoffeln', 'erbsen': 'erbsen', 'karotten': 'karotten',
       'karotte': 'karotten', 'gurken': 'gurken', 'gurke': 'gurken',
-      'bio-beeren': 'beeren', 'beeren': 'beeren', 'banane': 'banane', 'joghurt': 'joghurt',
+      'banane': 'banane', 'joghurt': 'joghurt',
       'mehl': 'mehl', 'rahm': 'rahm', 'lauch': 'lauch',
       'schinken': 'schinken', 'schinkenwürfel': 'schinken', 'schinkenwürfeli': 'schinken',
       'käse': 'käse', 'tomaten': 'tomaten', 'kichererbsen': 'kichererbsen',
@@ -301,6 +302,21 @@ export default function ReviewPage() {
       key = Object.keys(nd).find(k => k.toLowerCase().includes(stem) || stem.includes(k.toLowerCase()));
     }
     return key ? nd[key] : null;
+  }
+
+  // Validated nutritional overrides — use when Agent 2 lookup fails or is known wrong
+  const VALIDATED_NUTRITION = {
+    'bio-beeren': { carbs_per_100g: 7 },  // validated: Swiss retail (Migros/Coop frozen mixed berries = 7g/100g)
+    'beeren': { carbs_per_100g: 7 },
+    'tk-beeren': { carbs_per_100g: 7 },
+  };
+
+  function lookupNutritionWithFallback(name, nd) {
+    // Check validated overrides first
+    const n = name.toLowerCase();
+    const validatedKey = Object.keys(VALIDATED_NUTRITION).find(k => n.includes(k) || k.includes(n.split(' ')[0]));
+    if (validatedKey) return VALIDATED_NUTRITION[validatedKey];
+    return lookupNutrition(name, nd);
   }
 
   // Clustering — dish membership wins, explicit per ingredient
@@ -358,7 +374,7 @@ export default function ReviewPage() {
       // displayQty: show original unit e.g. "4 dl (400g)" or "10 Stk (550g)" or "2000g"
       const displayQty = bracketMatch ? `${bracketMatch[2].trim()} (${bracketMatch[3]}g)` : `${directMatch[2]}g`;
       const weight = bracketMatch ? parseFloat(bracketMatch[3]) : parseFloat(directMatch[2]);
-      const nutrition = lookupNutrition(name, nutritionData);
+      const nutrition = lookupNutritionWithFallback(name, nutritionData);
       const per100 = nutrition ? nutrition.carbs_per_100g : null;
       const totalCarb = per100 !== null ? Math.round((weight * per100 / 100) * 10) / 10 : null;
       // Cluster first — dish membership overrides free-food heuristics
@@ -453,11 +469,12 @@ export default function ReviewPage() {
             {/* 2 — OMNIPOD ENTRY — 3 cols, light blue */}
             <div style={{marginBottom:'1.4rem'}}>
               <div style={S.sectionLabel}>Omnipod Entry</div>
-              <div style={{...S.omnipodBar, gridTemplateColumns: '1fr 1px 1fr 1px 1fr 1px 1fr'}}>
+              <div style={{...S.omnipodBar, gridTemplateColumns: '1fr 1px 1fr 1px 1fr'}}>
                 {/* Col 0 — Portion Size */}
                 <div style={S.omnipodCellFirst}>
                   <div style={S.omnipodCellLabel}>Portion Size</div>
-                  <div style={S.omnipodText}>{portionSize}g {portionDesc}</div>
+                  <div style={S.omnipodText}>{portionSize}g {carbFoodName}</div>
+                  {freeFoodNames && <div style={{...S.omnipodCellSub, marginTop:'0.3rem'}}>+ sides not counted: {freeFoodNames}</div>}
                 </div>
                 {/* Divider */}
                 <div style={S.omnipodDivider} />
@@ -475,14 +492,11 @@ export default function ReviewPage() {
                   <div style={S.omnipodCellValue}>{glycemicSpeed === 'fast' ? '⚡ Fast acting' : '🐢 Slow acting'}</div>
                   <div style={S.omnipodCellSub}>{glycemicSpeed === 'fast' ? '⏱ Wait 10 min before meal' : '✓ No waiting needed'}</div>
                 </div>
-                {/* Divider */}
-                <div style={S.omnipodDivider} />
-                {/* Col 3 — Warning */}
-                <div style={S.omnipodCell}>
-                  <div style={S.omnipodCellLabel}>Important</div>
-                  <div style={S.omnipodCellSub}>Do not use "Sensordaten verwenden" unless instructed</div>
-                </div>
+
               </div>
+            </div>
+            <div style={{fontSize:'0.75rem', color:'#6b7280', marginTop:'0.5rem', marginBottom:'1.4rem', fontStyle:'italic'}}>
+              ⚠️ Do not use "Sensordaten verwenden" unless instructed by your diabetes team.
             </div>
 
             {/* 3 — NACHSCHLAG — light blue */}
@@ -551,8 +565,10 @@ export default function ReviewPage() {
                     <tbody>
                       {/* CARB INGREDIENTS — grouped by cluster */}
                       {Object.entries(carbClusters).map(([clusterName, ings]) => {
+                        const clusterCarbs = Math.round(ings.reduce((s, i) => s + (i.total || 0), 0) * 10) / 10;
                         const clusterTotal = Math.round(ings.filter(i => !i.free).reduce((s, i) => s + (i.total || 0), 0) * 10) / 10;
                         const clusterWeight = ings.reduce((s, i) => s + (i.weight || 0), 0);
+                        const isFreeSideCluster = ings.every(i => i.free);
                         const showCluster = true;
                         return (
                           <React.Fragment key={clusterName}>
@@ -560,14 +576,14 @@ export default function ReviewPage() {
                               <tr>
                                 <td colSpan={4} style={{
                                   padding: '0.4rem 0.7rem',
-                                  background: BLUE_LIGHT,
-                                  color: BLUE,
+                                  background: isFreeSideCluster ? '#f9fafb' : BLUE_LIGHT,
+                                  color: isFreeSideCluster ? '#9ca3af' : BLUE,
                                   fontSize: '0.7rem',
                                   fontWeight: 700,
                                   letterSpacing: '0.07em',
                                   textTransform: 'uppercase',
-                                  borderBottom: `1px solid ${BLUE_BORDER}`,
-                                }}>{clusterName}</td>
+                                  borderBottom: `1px solid ${isFreeSideCluster ? BORDER : BLUE_BORDER}`,
+                                }}>{clusterName}{isFreeSideCluster ? ' — not counted' : ''}</td>
                               </tr>
                             )}
                             {ings.map((ing, i) => (
@@ -580,10 +596,10 @@ export default function ReviewPage() {
                             ))}
                             {showCluster && (
                               <tr>
-                                <td style={{...S.td, fontWeight:600, color:'#374151', background:'#f9fafb', borderTop:`1px solid ${BORDER}`}}>↳ {clusterName} subtotal</td>
-                                <td style={{...S.tdRight, fontWeight:600, color:'#374151', background:'#f9fafb', borderTop:`1px solid ${BORDER}`}}>{clusterWeight}g</td>
-                                <td style={{...S.tdRight, background:'#f9fafb', borderTop:`1px solid ${BORDER}`}}></td>
-                                <td style={{...S.tdCarbs, fontWeight:700, background:'#f9fafb', borderTop:`1px solid ${BORDER}`}}>{clusterTotal}g</td>
+                                <td style={{...S.td, fontWeight:600, color: isFreeSideCluster ? '#9ca3af' : '#374151', background:'#f9fafb', borderTop:`1px solid ${BORDER}`, fontStyle: isFreeSideCluster ? 'italic' : 'normal'}}>↳ {clusterName} subtotal</td>
+                                <td style={{...S.tdRight, fontWeight:600, color: isFreeSideCluster ? '#9ca3af' : '#374151', background:'#f9fafb', borderTop:`1px solid ${BORDER}`}}>{clusterWeight}g</td>
+                                <td style={{...S.tdRight, background:'#f9fafb', borderTop:`1px solid ${BORDER}`, color: isFreeSideCluster ? '#9ca3af' : 'inherit'}}>{isFreeSideCluster ? `${clusterCarbs}g total` : ''}</td>
+                                <td style={{...S.tdCarbs, fontWeight:700, background:'#f9fafb', borderTop:`1px solid ${BORDER}`, color: isFreeSideCluster ? '#9ca3af' : BLUE, fontStyle: isFreeSideCluster ? 'italic' : 'normal'}}>{isFreeSideCluster ? '0g counted' : `${clusterTotal}g`}</td>
                               </tr>
                             )}
                           </React.Fragment>
