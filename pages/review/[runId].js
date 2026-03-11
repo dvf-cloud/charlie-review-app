@@ -607,8 +607,8 @@ export default function ReviewPage() {
                     </tbody>
                   </table>
                 )}
-              </div>
               {tableOpen && <div style={{fontSize:'0.75rem', color:'#9ca3af', marginTop:'0.4rem', fontStyle:'italic'}}>* Free food — not counted in carb calculation</div>}
+              </div>
             )}
 
           </div>
