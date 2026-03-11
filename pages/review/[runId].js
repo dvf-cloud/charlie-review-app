@@ -79,7 +79,7 @@ export default function ReviewPage() {
     } catch (e) { setPhase('error'); }
   }
 
-  // Parse herleitung — extract Dish Understanding and Carb Calculation only
+  // Parse herleitung — extract DISH UNDERSTANDING and CARB CALCULATION only
   function parseHerleitung(text) {
     if (!text) return null;
     const dishMatch = text.match(/DISH UNDERSTANDING\n([\s\S]*?)(?=\nCARB CALCULATION|\nNOT COUNTED|\nNACHSCHLAG|\nGLYCEMIC|→ OMNIPOD|$)/i);
@@ -91,27 +91,11 @@ export default function ReviewPage() {
       carbLines = carbRaw.split('\n').map(line => {
         const l = line.trim();
         if (!l) return null;
-        if (l.includes('×') || (l.includes('=') && l.includes('g') && !l.startsWith('Total') && !l.startsWith('Charlie'))) return { type: 'bullet', text: l };
+        if (l.includes('×') || (l.includes('=') && l.includes('g'))) return { type: 'bullet', text: l };
         return { type: 'text', text: l };
       }).filter(Boolean);
     }
     return { dishText, carbLines };
-  }
-
-  // Parse ingredients from extractedMenu for the full table
-  function parseIngredients(extractedMenu, day, type) {
-    if (!extractedMenu) return [];
-    try {
-      const menu = typeof extractedMenu === 'string' ? JSON.parse(extractedMenu) : extractedMenu;
-      const ingredientStr = menu?.[day]?.[type]?.ingredients || '';
-      if (!ingredientStr) return [];
-      return ingredientStr.split('|').map(part => {
-        const p = part.trim();
-        const match = p.match(/^(.+?)\s+([\d.]+)\s*g/);
-        if (match) return { name: match[1].trim(), weight: parseFloat(match[2]) };
-        return { name: p, weight: null };
-      }).filter(i => i.name);
-    } catch(e) { return []; }
   }
 
   const BLUE = '#1a6fe8';
@@ -120,7 +104,6 @@ export default function ReviewPage() {
   const GRAY_DARK = '#374151';
   const GRAY_MID = '#6b7280';
   const BORDER = '#e5e7eb';
-  const SECTION_LABEL_COLOR = '#111827';
   const roundCarbs = (v) => typeof v === 'number' ? Math.round(v * 10) / 10 : v;
   const roundInt = (v) => typeof v === 'number' ? Math.round(v) : v;
 
@@ -136,65 +119,73 @@ export default function ReviewPage() {
       background: i < currentIndex ? (corrected ? '#f97316' : '#16a34a') : i === currentIndex ? BLUE : '#e5e7eb',
       color: i <= currentIndex ? 'white' : '#9ca3af',
     }),
-    content: { maxWidth: 660, margin: '0 auto', padding: '0 1rem 3rem' },
-    card: { background: 'white', borderRadius: 0, overflow: 'hidden', marginBottom: '1.5rem' },
+    content: { maxWidth: 660, margin: '2rem auto', padding: '0 1rem 3rem' },
 
-    // Above-card pill row — day | meal type
-    pillRow: { display: 'flex', gap: '0.5rem', padding: '1.2rem 1rem 0.6rem' },
-    pill: { display: 'inline-flex', alignItems: 'center', gap: '0.3rem', background: BLUE_LIGHT, color: BLUE, borderRadius: 20, padding: '0.28rem 0.9rem', fontSize: '0.82rem', fontWeight: 600, border: `1px solid ${BLUE_BORDER}` },
+    // Card — white bg, subtle shadow + border
+    card: { background: 'white', borderRadius: 16, boxShadow: '0 2px 20px rgba(0,0,0,0.08)', overflow: 'hidden', marginBottom: '1.5rem', border: `1px solid ${BORDER}` },
 
-    // Blue section — now INVERTED: white bg, blue text
-    cardHeader: { background: 'white', border: `2px solid ${BLUE}`, borderRadius: 12, margin: '0 1rem 1.2rem', padding: '1.2rem 1.5rem' },
+    // Blue pill row — ABOVE the dish name box, outside the blue section
+    pillRow: { display: 'flex', gap: '0.5rem', padding: '1.4rem 1.8rem 0' },
+    pill: { display: 'inline-flex', alignItems: 'center', gap: '0.3rem', background: BLUE_LIGHT, color: BLUE, border: `1px solid ${BLUE_BORDER}`, borderRadius: 20, padding: '0.25rem 0.85rem', fontSize: '0.8rem', fontWeight: 600 },
+
+    // Dish name box — white bg, blue border (inverted from before)
+    dishBox: { margin: '0.8rem 1.8rem 0', padding: '1rem 1.4rem', border: `2px solid ${BLUE}`, borderRadius: 12, background: 'white' },
     mealName: { margin: 0, fontSize: '1.2rem', fontWeight: 600, lineHeight: 1.3, color: BLUE },
 
-    cardBody: { padding: '0 1rem' },
+    cardBody: { padding: '1.4rem 1.8rem' },
 
-    sectionLabel: { fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: SECTION_LABEL_COLOR, marginBottom: '0.6rem', marginTop: 0 },
+    // Section labels — dark, heavier
+    sectionLabel: { fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#1f2937', marginBottom: '0.6rem', marginTop: 0 },
 
-    // Meal Calculation Approach — two options
-    approachRow: { display: 'flex', gap: '0.7rem', marginBottom: '1.4rem' },
+    // Meal Calculation Approach — TWO options only
+    approachRow: { display: 'flex', gap: '0.6rem', marginBottom: '1.4rem' },
     approachOption: (active) => ({
       flex: 1, borderRadius: 10, padding: '0.8rem 1rem', border: `2px solid ${active ? BLUE : BORDER}`,
       background: active ? BLUE_LIGHT : '#fafafa',
     }),
-    approachOptionTitle: (active) => ({ fontSize: '0.82rem', fontWeight: 700, color: active ? BLUE : '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }),
-    approachOptionDesc: (active) => ({ fontSize: '0.8rem', color: active ? '#1e3a6e' : '#9ca3af', lineHeight: 1.35 }),
+    approachOptionTitle: (active) => ({ fontSize: '0.82rem', fontWeight: 700, color: active ? BLUE : '#b0b8c4', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }),
+    approachOptionDesc: (active) => ({ fontSize: '0.8rem', color: active ? '#1e3a6e' : '#b0b8c4', lineHeight: 1.35 }),
 
-    // Omnipod — lighter background, 3 cols
-    omnipodBar: { background: '#f0f4ff', border: `1px solid ${BLUE_BORDER}`, borderRadius: 12, padding: '1rem 1.2rem', marginBottom: '1.4rem', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0' },
-    omnipodCell: { padding: '0 0.8rem' },
-    omnipodCellFirst: { padding: '0 0.8rem 0 0' },
+    // Omnipod — light blue, 3 cols
+    omnipodBar: {
+      background: BLUE_LIGHT, border: `1.5px solid ${BLUE_BORDER}`, borderRadius: 12,
+      padding: '1rem 1.2rem', marginBottom: '1.4rem',
+      display: 'grid', gridTemplateColumns: '1fr 1px 1fr 1px 1fr', gap: '0',
+    },
+    omnipodDivider: { background: BLUE_BORDER, margin: '0 0.8rem' },
+    omnipodCell: { padding: '0 0.6rem' },
+    omnipodCellFirst: { padding: '0 0.6rem 0 0' },
     omnipodCellLabel: { color: GRAY_MID, fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', marginBottom: '0.3rem' },
-    omnipodCellValue: { color: '#1e1b4b', fontSize: '1.05rem', fontWeight: 600 },
-    omnipodCellRounded: { color: '#1e1b4b', fontSize: '1.05rem', fontWeight: 700, textDecoration: 'underline' },
-    omnipodCellSub: { color: GRAY_MID, fontSize: '0.72rem', marginTop: '0.2rem', lineHeight: 1.35 },
-    omnipodDivider: { width: 1, background: BLUE_BORDER, margin: '0' },
+    omnipodCalc: { color: '#1e1b4b', fontSize: '0.95rem', fontWeight: 500 },
+    omnipodRounded: { color: '#1e1b4b', fontSize: '1.0rem', fontWeight: 700, textDecoration: 'underline' },
+    omnipodCellValue: { color: '#1e1b4b', fontSize: '0.9rem', fontWeight: 600 },
+    omnipodCellSub: { color: GRAY_MID, fontSize: '0.72rem', marginTop: '0.2rem', lineHeight: 1.4 },
 
-    // Nachschlag — light blue
+    // Nachschlag — light blue box
     nachschlagBox: { background: BLUE_LIGHT, border: `1.5px solid ${BLUE_BORDER}`, borderRadius: 10, padding: '0.85rem 1rem', marginBottom: '1.4rem', fontSize: '0.88rem', color: '#1e3a6e', lineHeight: 1.65 },
 
     // Parental control
     parentalBox: { background: '#f8f9fa', border: `1px solid ${BORDER}`, borderRadius: 10, padding: '1.1rem 1.3rem', marginBottom: '1.4rem' },
-    parentalSubLabel: { fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#1f2937', marginBottom: '0.4rem', marginTop: 0 },
+    parentalSubLabel: { fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#1f2937', marginBottom: '0.4rem' },
     parentalDishText: { fontSize: '0.83rem', color: '#374151', lineHeight: 1.75, margin: '0 0 1rem 0' },
     parentalBulletList: { margin: '0.3rem 0 0', padding: '0 0 0 1.2rem', listStyle: 'disc' },
-    parentalBulletItem: { fontSize: '0.82rem', color: '#374151', lineHeight: 1.7, padding: '0.05rem 0' },
+    parentalBulletItem: { fontSize: '0.82rem', color: '#374151', lineHeight: 1.7 },
     parentalTextLine: { fontSize: '0.82rem', color: '#6b7280', lineHeight: 1.6, marginTop: '0.3rem', fontStyle: 'italic' },
 
-    // Full ingredient table (collapsible)
-    tableToggle: { width: '100%', background: 'none', border: `1px solid ${BORDER}`, borderRadius: 10, padding: '0.7rem 1rem', fontSize: '0.82rem', fontWeight: 600, color: BLUE, cursor: 'pointer', textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.4rem' },
-    table: { width: '100%', borderCollapse: 'collapse', fontSize: '0.83rem', marginBottom: '1.4rem', border: `1px solid ${BORDER}`, borderRadius: 10, overflow: 'hidden' },
+    // Ingredient table toggle + table
+    tableToggleBtn: { width: '100%', background: 'none', border: `1px solid ${BORDER}`, borderRadius: 10, padding: '0.7rem 1rem', fontSize: '0.82rem', fontWeight: 600, color: BLUE, cursor: 'pointer', textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem', fontFamily: "'Georgia', serif" },
+    table: { width: '100%', borderCollapse: 'collapse', fontSize: '0.83rem', marginBottom: '1.4rem', borderRadius: 10, overflow: 'hidden', border: `1px solid ${BORDER}` },
     th: { textAlign: 'left', fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#9ca3af', padding: '0.5rem 0.7rem', borderBottom: `2px solid ${BORDER}`, background: '#f9fafb' },
     thRight: { textAlign: 'right', fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#9ca3af', padding: '0.5rem 0.7rem', borderBottom: `2px solid ${BORDER}`, background: '#f9fafb' },
     td: { padding: '0.5rem 0.7rem', borderBottom: `1px solid #f3f4f6`, color: GRAY_DARK, verticalAlign: 'middle' },
     tdRight: { padding: '0.5rem 0.7rem', borderBottom: `1px solid #f3f4f6`, color: GRAY_DARK, textAlign: 'right', verticalAlign: 'middle' },
     tdCarbs: { padding: '0.5rem 0.7rem', borderBottom: `1px solid #f3f4f6`, color: BLUE, fontWeight: 700, textAlign: 'right', verticalAlign: 'middle' },
-    tdFreeTag: { padding: '0.5rem 0.7rem', borderBottom: `1px solid #f3f4f6`, color: '#9ca3af', textAlign: 'right', verticalAlign: 'middle', fontStyle: 'italic', fontSize: '0.78rem' },
-    tdTotalLabel: { padding: '0.6rem 0.7rem', color: '#111827', fontWeight: 700, verticalAlign: 'middle', borderTop: `2px solid ${BORDER}`, borderBottom: 'none', background: '#f9fafb' },
-    tdTotalRight: { padding: '0.6rem 0.7rem', color: '#111827', fontWeight: 700, textAlign: 'right', verticalAlign: 'middle', borderTop: `2px solid ${BORDER}`, borderBottom: 'none', background: '#f9fafb' },
-    tdTotalCarbs: { padding: '0.6rem 0.7rem', color: BLUE, fontWeight: 700, fontSize: '0.95rem', textAlign: 'right', verticalAlign: 'middle', borderTop: `2px solid ${BORDER}`, borderBottom: 'none', background: '#f9fafb' },
+    tdFree: { padding: '0.5rem 0.7rem', borderBottom: `1px solid #f3f4f6`, color: '#9ca3af', fontStyle: 'italic', textAlign: 'right', verticalAlign: 'middle', fontSize: '0.78rem' },
+    tdTotalLabel: { padding: '0.6rem 0.7rem', color: '#111827', fontWeight: 700, background: '#f9fafb', borderTop: `2px solid ${BORDER}`, borderBottom: 'none' },
+    tdTotalRight: { padding: '0.6rem 0.7rem', color: '#111827', fontWeight: 700, textAlign: 'right', background: '#f9fafb', borderTop: `2px solid ${BORDER}`, borderBottom: 'none' },
+    tdTotalCarbs: { padding: '0.6rem 0.7rem', color: BLUE, fontWeight: 700, fontSize: '0.95rem', textAlign: 'right', background: '#f9fafb', borderTop: `2px solid ${BORDER}`, borderBottom: 'none' },
 
-    actions: { padding: '1.2rem 1rem', background: '#fafafa', borderTop: `1px solid ${BORDER}` },
+    actions: { padding: '1.2rem 1.8rem', background: '#fafafa', borderTop: `1px solid ${BORDER}` },
     correctionInput: { width: '100%', padding: '0.75rem 1rem', borderRadius: 10, border: `2px solid ${BORDER}`, fontSize: '0.88rem', fontFamily: 'inherit', resize: 'vertical', marginBottom: '0.9rem', outline: 'none', boxSizing: 'border-box', color: GRAY_DARK },
     btnRow: { display: 'flex', gap: '0.75rem' },
     btnApprove: { flex: 1, padding: '0.85rem', borderRadius: 11, border: '2px solid #16a34a', background: '#f0fdf4', color: '#15803d', fontSize: '0.95rem', fontWeight: 600, cursor: 'pointer' },
@@ -213,7 +204,7 @@ export default function ReviewPage() {
     <div style={S.page}>
       <div style={S.header}><div><h1 style={S.headerTitle}>🩺 Charlie's Meal Review</h1><p style={S.headerSub}>All meals reviewed</p></div></div>
       <div style={S.content}>
-        <div style={{...S.doneCard, marginTop:'2rem'}}>
+        <div style={{...S.doneCard, marginTop:'1rem'}}>
           <div style={{fontSize:'2.5rem',marginBottom:'0.75rem'}}>✅</div>
           <h2 style={{color:'#1e1b4b',marginBottom:'0.5rem',fontWeight:600}}>All done!</h2>
           <p style={{color:GRAY_MID,marginBottom:'1.5rem',fontSize:'0.9rem'}}>Message for the kindergarten:</p>
@@ -228,6 +219,7 @@ export default function ReviewPage() {
   const meal = meals[currentIndex];
   if (!meal) return null;
 
+  // === DATA — identical to v7, untouched ===
   const mealData = meal.data;
   const carbFoods = mealData?.carb_foods || [];
   const freeFoods = mealData?.free_foods || [];
@@ -237,23 +229,19 @@ export default function ReviewPage() {
   const herleitung = mealsJson?.[meal.day]?.[meal.type]?.herleitung || null;
   const mealTypeLabel = meal.type === 'Zmittag' ? 'Lunch' : 'Afternoon Snack';
   const mealTypeEmoji = meal.type === 'Zmittag' ? '🍽️' : '🍎';
-
   const modeRaw = mealData?.mode_applied || '';
   const isModeA = modeRaw.toLowerCase().includes('mode a');
   const isModeB = modeRaw.toLowerCase().includes('mode b');
   const parsed = parseHerleitung(herleitung);
-
-  // Build full ingredient table from carbFoods + freeFoods
-  // carbFoods have: food, portion_g, carbs_per_100g, carbs_g
-  // freeFoods have: food, portion_g
   const allIngredients = [
     ...carbFoods.map(f => ({ name: f.food, weight: f.portion_g, per100: f.carbs_per_100g, total: f.carbs_g, free: false })),
-    ...freeFoods.map(f => ({ name: f.food, weight: f.portion_g, per100: 0, total: 0, free: true })),
+    ...freeFoods.map(f => ({ name: f.food, weight: f.portion_g, per100: null, total: null, free: true })),
   ];
-  const totalWeight = allIngredients.reduce((sum, i) => sum + (i.weight || 0), 0);
+  const totalWeight = allIngredients.reduce((s, i) => s + (i.weight || 0), 0);
 
   return (
     <div style={S.page}>
+
       {/* HEADER */}
       <div style={S.header}>
         <div>
@@ -273,17 +261,16 @@ export default function ReviewPage() {
       </div>
 
       <div style={S.content}>
-
-        {/* PILL ROW — above the blue box */}
-        <div style={S.pillRow}>
-          <span style={S.pill}>{meal.day}</span>
-          <span style={S.pill}>{mealTypeEmoji} {mealTypeLabel}</span>
-        </div>
-
         <div style={S.card}>
 
-          {/* INVERTED HEADER — white bg, blue text/border */}
-          <div style={S.cardHeader}>
+          {/* PILLS — Monday | Lunch — above the dish box, inside the card but above the border */}
+          <div style={S.pillRow}>
+            <span style={S.pill}>{meal.day}</span>
+            <span style={S.pill}>{mealTypeEmoji} {mealTypeLabel}</span>
+          </div>
+
+          {/* DISH NAME BOX — white bg, blue border */}
+          <div style={S.dishBox}>
             <h2 style={S.mealName}>{mealData?.dish_name || meal.type}</h2>
           </div>
 
@@ -304,46 +291,45 @@ export default function ReviewPage() {
               </div>
             </div>
 
-            {/* 2 — OMNIPOD ENTRY */}
+            {/* 2 — OMNIPOD ENTRY — 3 cols, light blue */}
             <div style={{marginBottom:'1.4rem'}}>
               <div style={S.sectionLabel}>Omnipod Entry</div>
               <div style={S.omnipodBar}>
                 {/* Col 1 */}
                 <div style={S.omnipodCellFirst}>
                   <div style={S.omnipodCellLabel}>Omnipod Carb Entry</div>
-                  <div style={S.omnipodCellValue}>Calculated {roundCarbs(totalCarbs)}g</div>
-                  <div style={S.omnipodCellRounded}>Rounded {roundInt(totalCarbs)}g</div>
+                  <div style={S.omnipodCalc}>Calculated {roundCarbs(totalCarbs)}g</div>
+                  <div style={S.omnipodRounded}>Rounded {roundInt(totalCarbs)}g</div>
                 </div>
                 {/* Divider */}
-                <div style={{borderLeft:`1px solid ${BLUE_BORDER}`, ...S.omnipodCell}}>
+                <div style={S.omnipodDivider} />
+                {/* Col 2 */}
+                <div style={S.omnipodCell}>
                   <div style={S.omnipodCellLabel}>Glycemic Speed</div>
                   <div style={S.omnipodCellValue}>{glycemicSpeed === 'fast' ? '⚡ Fast acting' : '🐢 Slow acting'}</div>
                   <div style={S.omnipodCellSub}>{glycemicSpeed === 'fast' ? '⏱ Wait 10 min before meal' : '✓ No waiting needed'}</div>
                 </div>
                 {/* Divider */}
-                <div style={{borderLeft:`1px solid ${BLUE_BORDER}`, ...S.omnipodCell}}>
+                <div style={S.omnipodDivider} />
+                {/* Col 3 */}
+                <div style={S.omnipodCell}>
                   <div style={S.omnipodCellLabel}>Important</div>
-                  <div style={{...S.omnipodCellValue, fontSize:'0.82rem', lineHeight:1.35}}>Do not use "Sensordaten verwenden"</div>
-                  <div style={S.omnipodCellSub}>unless instructed otherwise</div>
+                  <div style={S.omnipodCellValue}>Do not use</div>
+                  <div style={S.omnipodCellSub}>"Sensordaten verwenden" unless instructed</div>
                 </div>
               </div>
             </div>
 
-            {/* 3 — NACHSCHLAG */}
+            {/* 3 — NACHSCHLAG — light blue */}
             {nachschlag && nachschlag.carb_foods && nachschlag.carb_foods.length > 0 && (
               <div style={{marginBottom:'1.4rem'}}>
                 <div style={S.sectionLabel}>Nachschlag</div>
                 <div style={S.nachschlagBox}>
-                  {nachschlag.carb_foods.map((f, i) => {
-                    const rounded = roundInt(f.carbs_g);
-                    return (
-                      <div key={i}>
-                        +{f.portion_g}g {f.food} → enter additional{' '}
-                        {roundCarbs(f.carbs_g)}g carbs{' '}
-                        (<strong style={{textDecoration:'underline'}}>{rounded}g rounded</strong>) in Omnipod
-                      </div>
-                    );
-                  })}
+                  {nachschlag.carb_foods.map((f, i) => (
+                    <div key={i}>
+                      +{f.portion_g}g {f.food} → enter additional {roundCarbs(f.carbs_g)}g (<strong style={{textDecoration:'underline'}}>{roundInt(f.carbs_g)}g rounded</strong>) in Omnipod
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
@@ -377,17 +363,17 @@ export default function ReviewPage() {
 
             {/* 5 — FULL INGREDIENT TABLE (collapsible) */}
             {allIngredients.length > 0 && (
-              <div style={{marginBottom:'1.4rem'}}>
-                <button style={S.tableToggle} onClick={() => setTableOpen(o => !o)}>
+              <div style={{marginBottom:'0.5rem'}}>
+                <button style={S.tableToggleBtn} onClick={() => setTableOpen(o => !o)}>
                   <span>📋 Full Ingredient Table</span>
-                  <span style={{fontSize:'0.9rem'}}>{tableOpen ? '▲ Hide' : '▼ Show'}</span>
+                  <span>{tableOpen ? '▲ Hide' : '▼ Show'}</span>
                 </button>
                 {tableOpen && (
                   <table style={S.table}>
                     <thead>
                       <tr>
                         <th style={S.th}>Ingredient</th>
-                        <th style={S.thRight}>Total weight</th>
+                        <th style={S.thRight}>Recipe weight</th>
                         <th style={S.thRight}>g / 100g</th>
                         <th style={S.thRight}>Total carbs</th>
                       </tr>
@@ -397,10 +383,8 @@ export default function ReviewPage() {
                         <tr key={i}>
                           <td style={S.td}>{ing.name}</td>
                           <td style={S.tdRight}>{ing.weight}g</td>
-                          <td style={S.tdRight}>{ing.free ? '—' : `${ing.per100}g`}</td>
-                          <td style={ing.free ? S.tdFreeTag : S.tdCarbs}>
-                            {ing.free ? 'free' : `${roundCarbs(ing.total)}g`}
-                          </td>
+                          <td style={ing.free ? {...S.tdRight, color:'#9ca3af'} : S.tdRight}>{ing.free ? '—' : `${ing.per100}g`}</td>
+                          <td style={ing.free ? S.tdFree : S.tdCarbs}>{ing.free ? 'free' : `${roundCarbs(ing.total)}g`}</td>
                         </tr>
                       ))}
                       <tr>
