@@ -258,18 +258,21 @@ export default function ReviewPage() {
   const isModeA = modeRaw.toLowerCase().includes('mode a');
   const isModeB = modeRaw.toLowerCase().includes('mode b');
   const parsed = parseHerleitung(herleitung);
-  // Free foods — always carb-free (vegetables + eggs + protein items)
+  // Free foods — source: University Hospital Zurich Austauschtabelle
+  // Vegetables with counted carbs: Erbsen, Mais, Kefen, Maiskolben, Randen — these are NOT in this list
   const FREE_FOODS_LIST = [
-    // Vegetables (free when served as side — not when baked into dish)
-    'erbsen', 'karotten', 'gurken', 'gurke', 'karotte', 'tomaten', 'tomate',
-    'brokkoli', 'blumenkohl', 'auberginen', 'aubergine', 'fenchel',
+    // Vegetables that are truly free (no meaningful carbs)
+    'karotten', 'gurken', 'gurke', 'karotte', 'tomaten', 'tomate',
+    'brokkoli', 'blumenkohl', 'auberginen', 'aubergine', 'fenchel', 'lauch',
     'nüsslisalat', 'gemüsesticks', 'gemüse', 'paprika', 'zwiebeln', 'zwiebel',
-    'spinat', 'zucchini', 'sellerie', 'rüebli', 'randen', 'blattsalat',
-    // Protein / fat (negligible carbs — only when served as standalone)
+    'spinat', 'zucchini', 'sellerie', 'rüebli', 'blattsalat',
+    // Protein / fat
     'eier', 'ei ', 'spiegelei', 'fleisch', 'hähnchen', 'poulet',
-    // Dressings — oils free, acids negligible
+    // Dressings
     'öl', 'olivenöl', 'essig',
   ];
+  // NOTE: Erbsen (peas), Mais, Kefen, Maiskolben, Randen are NOT free — they count carbs per UHZ
+  // Randen/Rote Bete handled separately in nutrition lookup (8.3g/100g)
 
   function isFreeFood(name) {
     const n = name.toLowerCase();
