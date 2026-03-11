@@ -242,52 +242,62 @@ export default function ReviewPage() {
   const isModeA = modeRaw.toLowerCase().includes('mode a');
   const isModeB = modeRaw.toLowerCase().includes('mode b');
   const parsed = parseHerleitung(herleitung);
+  // Free vegetable list — these are always carb-free regardless of carb content
+  const FREE_VEGETABLES = [
+    'erbsen', 'karotten', 'gurken', 'gurke', 'karotte', 'tomaten', 'tomate',
+    'brokkoli', 'blumenkohl', 'auberginen', 'aubergine', 'lauch', 'fenchel',
+    'nüsslisalat', 'gemüsesticks', 'gemüse', 'paprika', 'zwiebeln', 'zwiebel',
+    'spinat', 'zucchini', 'sellerie', 'rüebli'
+  ];
+
+  function isVegetableFree(name) {
+    const n = name.toLowerCase();
+    return FREE_VEGETABLES.some(v => n.includes(v));
+  }
+
   // Nutrition lookup with improved fuzzy matching
   function lookupNutrition(name, nd) {
     if (!nd) return null;
     const n = name.toLowerCase();
-    // Direct key match
-    let key = Object.keys(nd).find(k => n.includes(k.toLowerCase()));
-    if (!key) key = Object.keys(nd).find(k => k.toLowerCase().includes(n.split(' ')[0]));
-    // Manual overrides for common German ingredient names
+    // Manual overrides first — most reliable
     const overrides = {
-      'milch': 'milch', 'eier': 'eier', 'ei ': 'eier', 'butter': 'butter',
+      'milch': 'milch', 'eier': 'eier', 'butter': 'butter',
       'kartoffel': 'kartoffeln', 'erbsen': 'erbsen', 'karotten': 'karotten',
-      'gurken': 'gurken', 'banane': 'banane', 'beeren': 'beeren', 'joghurt': 'joghurt',
+      'karotte': 'karotten', 'gurken': 'gurken', 'gurke': 'gurken',
+      'banane': 'banane', 'beeren': 'beeren', 'joghurt': 'joghurt',
       'mehl': 'mehl', 'rahm': 'rahm', 'lauch': 'lauch', 'schinken': 'schinken',
       'käse': 'käse', 'tomaten': 'tomaten', 'kichererbsen': 'kichererbsen',
       'rote bete': 'rote_bete', 'olivenöl': 'olivenöl', 'öl': 'öl',
-      'zitronensaft': 'zitrone', 'zitrone': 'zitrone',
+      'zitronensaft': 'zitrone', 'zitrone': 'zitrone', 'essig': 'essig',
     };
-    if (!key) {
-      const overrideKey = Object.keys(overrides).find(k => n.includes(k));
-      if (overrideKey) key = overrides[overrideKey];
-    }
+    const overrideKey = Object.keys(overrides).find(k => n.includes(k));
+    if (overrideKey) return nd[overrides[overrideKey]] || null;
+    // Fallback fuzzy
+    let key = Object.keys(nd).find(k => n.includes(k.toLowerCase()));
+    if (!key) key = Object.keys(nd).find(k => k.toLowerCase().includes(n.split(' ')[0]));
     return key ? nd[key] : null;
   }
 
   // Clustering rules — which ingredients belong together as a component
   function getCluster(name, modeRaw, dishName) {
     const n = name.toLowerCase();
-    const mode = modeRaw.toLowerCase();
     const dish = (dishName || '').toLowerCase();
-    // Kartoffelstock cluster
-    if (dish.includes('kartoffelstock') || mode.includes('mode b')) {
+    // Kartoffelstock cluster — potatoes, milk AND butter all go in
+    if (dish.includes('kartoffelstock') || modeRaw.toLowerCase().includes('mode b')) {
       if (n.includes('kartoffel') || n.includes('milch') || n.includes('butter')) return 'Kartoffelstock (mashed base)';
     }
     // Quiche — pastry vs filling
     if (dish.includes('quiche')) {
-      if (n.includes('mehl') || (n.includes('butter') && n.includes('2'))) return 'Pastry (Mürbeteig)';
-      if (n.includes('rahm') || n.includes('lauch') || n.includes('schinken') || n.includes('käse') || (n.includes('eier') && !n.includes('mehl'))) return 'Filling';
+      if (n.includes('mehl') || n.includes('butter')) return 'Pastry (Mürbeteig)';
+      if (n.includes('rahm') || n.includes('lauch') || n.includes('schinken') || n.includes('käse') || n.includes('eier')) return 'Filling';
     }
     // Smoothie / blended
     if (dish.includes('smoothie') || dish.includes('bowl')) return 'Blended mixture';
     // Hummus
     if (dish.includes('hummus')) {
       if (n.includes('kichererbsen') || n.includes('rote bete') || n.includes('olivenöl') || n.includes('zitron')) return 'Hummus';
-      if (n.includes('gemüse') || n.includes('karotte') || n.includes('gurke') || n.includes('paprika')) return 'Vegetable sticks (free)';
     }
-    return 'Other';
+    return 'Main';
   }
 
   // Build ingredient table from raw recipe data
@@ -305,8 +315,8 @@ export default function ReviewPage() {
       const nutrition = lookupNutrition(name, nutritionData);
       const per100 = nutrition ? nutrition.carbs_per_100g : null;
       const totalCarb = per100 !== null ? Math.round((weight * per100 / 100) * 10) / 10 : null;
-      const isFree = per100 !== null && per100 < 2;
-      const cluster = getCluster(name, modeRaw, mealData?.dish_name);
+      const isFree = isVegetableFree(name) || (per100 !== null && per100 === 0);
+      const cluster = isFree ? 'free' : getCluster(name, modeRaw, mealData?.dish_name);
       return { name, weight, per100, total: totalCarb, free: isFree, cluster };
     }).filter(Boolean);
   }
