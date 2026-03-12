@@ -13,7 +13,7 @@ export default function ReviewPage() {
   const [calculation, setCalculation] = useState(null);
   const [mealsJson, setMealsJson] = useState(null);
   const [meals, setMeals] = useState([]);
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [currentIndex, setCurrentIndex] = useState(null);
   const [corrections, setCorrections] = useState({});
   const [correctionText, setCorrectionText] = useState('');
   const [phase, setPhase] = useState('loading');
@@ -21,6 +21,10 @@ export default function ReviewPage() {
   const [tableOpen, setTableOpen] = useState(false);
   const [extractedMenu, setExtractedMenu] = useState(null);
   const [nutritionData, setNutritionData] = useState(null);
+  const [kitaText, setKitaText] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
+  const [kitaSent, setKitaSent] = useState(false);
+  const [kitaSending, setKitaSending] = useState(false);
 
   useEffect(() => { if (!runId) return; fetchRecord(); }, [runId]);
   useEffect(() => { setTableOpen(false); }, [currentIndex]);
@@ -60,19 +64,27 @@ export default function ReviewPage() {
 
   function handleApprove() {
     const meal = meals[currentIndex];
-    setCorrections(prev => ({ ...prev, [`${meal.day}_${meal.type}`]: 'APPROVED' }));
+    const newCorrections = { ...corrections, [`${meal.day}_${meal.type}`]: 'APPROVED' };
+    setCorrections(newCorrections);
     setCorrectionText('');
-    if (currentIndex < meals.length - 1) setCurrentIndex(i => i + 1);
-    else finalizeAndSave(false);
+    setCurrentIndex(null); // back to list
+    // Check if all meals reviewed
+    const allDone = meals.every(m => newCorrections[`${m.day}_${m.type}`]);
+    if (allDone) {
+      const hadCorrections = Object.values(newCorrections).some(v => v !== 'APPROVED');
+      finalizeAndSave(hadCorrections);
+    }
   }
 
   function handleCorrect() {
     if (!correctionText.trim()) return;
     const meal = meals[currentIndex];
-    setCorrections(prev => ({ ...prev, [`${meal.day}_${meal.type}`]: correctionText }));
+    const newCorrections = { ...corrections, [`${meal.day}_${meal.type}`]: correctionText };
+    setCorrections(newCorrections);
     setCorrectionText('');
-    if (currentIndex < meals.length - 1) setCurrentIndex(i => i + 1);
-    else finalizeAndSave(true);
+    setCurrentIndex(null); // back to list
+    const allDone = meals.every(m => newCorrections[`${m.day}_${m.type}`]);
+    if (allDone) finalizeAndSave(true);
   }
 
   async function finalizeAndSave(hadCorrections) {
@@ -81,10 +93,39 @@ export default function ReviewPage() {
       await fetch(`https://api.airtable.com/v0/${AIRTABLE_BASE}/${AIRTABLE_TABLE}/${airtableId}`, {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${AIRTABLE_TOKEN}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fields: { status: hadCorrections ? 'CORRECTED' : 'APPROVED', corrections: JSON.stringify(corrections) } })
+        body: JSON.stringify({ fields: { status: hadCorrections ? 'CORRECTED' : 'REVIEWED', corrections: JSON.stringify(corrections) } })
       });
       setPhase('done');
     } catch (e) { setPhase('error'); }
+  }
+
+  function buildFormattedKitaMessage(msg) {
+    const raw = (msg || '').replace(/\\n/g, '\n');
+    const closing = 'Please tell us if Charlotte did not finish her portion. Do not force her to eat — if she does not feel like eating, that is completely fine.';
+    const sensorWarning = '⚠️ Do not use "Sensordaten verwenden" unless instructed otherwise.';
+    const stripped = raw.split(closing).join('').split(sensorWarning).join('').replace(/\n{3,}/g, '\n\n').trim();
+    return stripped + '\n\n' + sensorWarning + '\n\n' + closing;
+  }
+
+  async function finalizeKita() {
+    const msg = kitaText || buildFormattedKitaMessage(record?.kindergarten_message);
+    setKitaSending(true);
+    try {
+      navigator.clipboard.writeText(msg);
+      await fetch(`https://domvf.app.n8n.cloud/webhook/0f7f3c51-b24c-48c6-b634-c9e0c93a36dd`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runId, kitaMessage: msg, airtableId })
+      });
+      await fetch(`https://api.airtable.com/v0/${AIRTABLE_BASE}/${AIRTABLE_TABLE}/${airtableId}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${AIRTABLE_TOKEN}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: { status: 'APPROVED' } })
+      });
+      setKitaSent(true);
+      setIsEditing(false);
+    } catch (e) { alert('Something went wrong. Please copy the message manually.'); }
+    finally { setKitaSending(false); }
   }
 
   // Parse herleitung — extract DISH UNDERSTANDING and CARB CALCULATION only
@@ -124,13 +165,25 @@ export default function ReviewPage() {
     header: { background: 'white', borderBottom: `2px solid ${BLUE}`, padding: '1rem 2rem' },
     headerTitle: { margin: 0, fontSize: '1.05rem', fontWeight: 500, color: BLUE },
     headerSub: { margin: '0.1rem 0 0', fontSize: '0.8rem', color: GRAY_MID },
-    progress: { background: 'white', padding: '0.85rem 2rem', borderBottom: `1px solid ${BORDER}`, display: 'flex', gap: '0.5rem', alignItems: 'center' },
-    progressDot: (i, corrected) => ({
-      width: 30, height: 30, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: '0.72rem', fontWeight: 700, transition: 'all 0.3s',
-      background: i < currentIndex ? (corrected ? '#f97316' : '#16a34a') : i === currentIndex ? BLUE : '#e5e7eb',
-      color: i <= currentIndex ? 'white' : '#9ca3af',
+    progress: { background: 'white', padding: '0.85rem 2rem', borderBottom: `1px solid ${BORDER}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
+    progressText: { fontSize: '0.82rem', color: GRAY_MID },
+    progressCount: { fontSize: '0.82rem', fontWeight: 600, color: BLUE },
+    // Meal list cards
+    listCard: { background: 'white', borderRadius: 12, border: `1px solid ${BORDER}`, marginBottom: '0.75rem', padding: '1rem 1.2rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' },
+    listCardLeft: { display: 'flex', flexDirection: 'column', gap: '0.3rem' },
+    listCardPills: { display: 'flex', gap: '0.4rem' },
+    listCardPill: (color) => ({ fontSize: '0.7rem', fontWeight: 700, padding: '0.15rem 0.6rem', borderRadius: 6, background: color === 'blue' ? BLUE_LIGHT : '#f9fafb', color: color === 'blue' ? BLUE : GRAY_MID, border: `1px solid ${color === 'blue' ? BLUE_BORDER : BORDER}` }),
+    listCardDish: { fontSize: '0.9rem', fontWeight: 600, color: '#1f2937' },
+    listCardStatus: (status) => ({
+      fontSize: '0.78rem', fontWeight: 600, padding: '0.3rem 0.8rem', borderRadius: 8,
+      background: status === 'APPROVED' ? '#f0fdf4' : status === 'corrected' ? '#fff7ed' : '#f9fafb',
+      color: status === 'APPROVED' ? '#15803d' : status === 'corrected' ? '#c2410c' : '#9ca3af',
+      border: `1px solid ${status === 'APPROVED' ? '#86efac' : status === 'corrected' ? '#fdba74' : BORDER}`,
+      whiteSpace: 'nowrap',
     }),
+    reviewCompleteBar: { background: '#f0fdf4', border: '2px solid #86efac', borderRadius: 12, padding: '1.1rem 1.4rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' },
+    reviewCompleteBtn: { padding: '0.7rem 1.4rem', borderRadius: 10, border: 'none', background: '#16a34a', color: 'white', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer' },
+    backBtn: { background: 'none', border: 'none', color: BLUE, fontSize: '0.88rem', fontWeight: 600, cursor: 'pointer', padding: '0.5rem 0', display: 'flex', alignItems: 'center', gap: '0.3rem', marginBottom: '0.75rem', fontFamily: 'inherit' },
     content: { maxWidth: 660, margin: '2rem auto', padding: '0 1rem 3rem' },
 
     // Card — white bg, subtle shadow + border
@@ -214,30 +267,115 @@ export default function ReviewPage() {
   if (phase === 'error') return <div style={S.page}><div style={{textAlign:'center',padding:'4rem',color:'#ef4444'}}><div style={{fontSize:'2rem',marginBottom:'1rem'}}>⚠️</div>Something went wrong.</div></div>;
   if (phase === 'saving') return <div style={S.page}><div style={{textAlign:'center',padding:'4rem',color:GRAY_MID}}><div style={{fontSize:'2rem',marginBottom:'1rem'}}>💾</div>Saving your review...</div></div>;
 
-  if (phase === 'done') return (
-    <div style={S.page}>
-      <div style={S.header}><div><h1 style={S.headerTitle}>🩺 Charlie's Meal Review</h1><p style={S.headerSub}>All meals reviewed</p></div></div>
-      <div style={S.content}>
-        <div style={{...S.doneCard, marginTop:'1rem'}}>
-          <div style={{fontSize:'2.5rem',marginBottom:'0.75rem'}}>✅</div>
-          <h2 style={{color:'#1e1b4b',marginBottom:'0.5rem',fontWeight:600}}>All done!</h2>
-          <p style={{color:GRAY_MID,marginBottom:'1.5rem',fontSize:'0.9rem'}}>Message for the kindergarten:</p>
-          <div style={S.kitaMessage}>{
-            (() => {
-              const msg = (record?.kindergarten_message || '').replace(/\\n/g, '\n');
-              const closing = 'Please tell us if Charlotte did not finish her portion. Do not force her to eat — if she does not feel like eating, that is completely fine.';
-              const sensorWarning = '⚠️ Do not use "Sensordaten verwenden" unless instructed otherwise.';
-              const stripped = msg.split(closing).join('').split(sensorWarning).join('').replace(/\n{3,}/g, '\n\n').trim();
-              return stripped + '\n\n' + sensorWarning + '\n\n' + closing;
-            })()
-          }</div>
-          <button style={S.copyBtn} onClick={() => { navigator.clipboard.writeText(record?.kindergarten_message?.replace(/\\n/g, '\n') || ''); alert('Copied!'); }}>📋 Copy to clipboard</button>
+  if (phase === 'done') {
+    const displayMsg = kitaText || buildFormattedKitaMessage(record?.kindergarten_message);
+    return (
+      <div style={S.page}>
+        <div style={S.header}><div><h1 style={S.headerTitle}>🩺 Charlie's Meal Review</h1><p style={S.headerSub}>All meals reviewed</p></div></div>
+        <div style={S.content}>
+          <div style={{...S.doneCard, marginTop:'1rem'}}>
+            <div style={{fontSize:'2.5rem',marginBottom:'0.75rem'}}>{kitaSent ? '📨' : '✅'}</div>
+            <h2 style={{color:'#1e1b4b',marginBottom:'0.5rem',fontWeight:600}}>
+              {kitaSent ? 'Sent & copied!' : 'All meals reviewed'}
+            </h2>
+            <p style={{color:GRAY_MID,marginBottom:'0.5rem',fontSize:'0.9rem'}}>
+              {kitaSent ? 'Email sent to you and your wife. Message copied to clipboard.' : 'Review the Kita message below before sending.'}
+            </p>
+            {isEditing ? (
+              <textarea
+                style={{...S.correctionInput, marginTop:'1rem', minHeight:'280px', background:'white', border:`2px solid ${BLUE}`}}
+                value={kitaText}
+                onChange={e => setKitaText(e.target.value)}
+              />
+            ) : (
+              <div style={S.kitaMessage}>{displayMsg}</div>
+            )}
+            {!kitaSent && (
+              <div style={{display:'flex', gap:'0.75rem', marginTop:'1rem'}}>
+                <button
+                  style={{flex:2, padding:'0.85rem', borderRadius:11, border:'2px solid #16a34a', background: kitaSending ? '#f0fdf4' : '#16a34a', color: kitaSending ? '#15803d' : 'white', fontSize:'0.95rem', fontWeight:600, cursor: kitaSending ? 'default' : 'pointer'}}
+                  onClick={finalizeKita}
+                  disabled={kitaSending}
+                >
+                  {kitaSending ? '⏳ Sending...' : '✅ Approve & Copy'}
+                </button>
+                <button
+                  style={{flex:1, padding:'0.85rem', borderRadius:11, border:`2px solid ${BLUE}`, background:'white', color:BLUE, fontSize:'0.95rem', fontWeight:600, cursor:'pointer'}}
+                  onClick={() => { setIsEditing(e => !e); if (!kitaText) setKitaText(displayMsg); }}
+                >
+                  {isEditing ? '👁 Preview' : '✏️ Edit'}
+                </button>
+              </div>
+            )}
+            {kitaSent && (
+              <div style={{marginTop:'1rem', padding:'0.85rem', borderRadius:11, background:'#f0fdf4', border:'2px solid #86efac', color:'#15803d', fontSize:'0.88rem'}}>
+                ✓ Kita message copied to clipboard — open the app and paste.
+              </div>
+            )}
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  }
 
   if (!meals.length) return null;
+
+  const reviewedCount = meals.filter(m => corrections[`${m.day}_${m.type}`]).length;
+  const allReviewed = reviewedCount === meals.length;
+
+  // LIST VIEW — no meal selected
+  if (currentIndex === null) {
+    return (
+      <div style={S.page}>
+        <div style={S.header}>
+          <div>
+            <h1 style={S.headerTitle}>🩺 Charlie's Meal Review</h1>
+            <p style={S.headerSub}>{record?.email_subject}</p>
+          </div>
+        </div>
+        <div style={S.progress}>
+          <span style={S.progressText}>Week overview</span>
+          <span style={S.progressCount}>{reviewedCount} of {meals.length} reviewed</span>
+        </div>
+        <div style={S.content}>
+          {allReviewed && (
+            <div style={S.reviewCompleteBar}>
+              <span style={{fontSize:'0.9rem', fontWeight:600, color:'#15803d'}}>✅ All meals reviewed</span>
+              <button style={S.reviewCompleteBtn} onClick={() => { const hadCorrections = Object.values(corrections).some(v => v !== 'APPROVED'); finalizeAndSave(hadCorrections); }}>
+                Review Kita message →
+              </button>
+            </div>
+          )}
+          {meals.map((m, i) => {
+            const key = `${m.day}_${m.type}`;
+            const status = corrections[key];
+            const isApproved = status === 'APPROVED';
+            const isCorrected = status && status !== 'APPROVED';
+            const mealLabel = m.type === 'Zmittag' ? '🍽️ Lunch' : '🍎 Snack';
+            return (
+              <div key={i} style={{...S.listCard, borderColor: isApproved ? '#86efac' : isCorrected ? '#fdba74' : BORDER}}
+                onClick={() => { setCurrentIndex(i); setCorrectionText(''); setTableOpen(false); }}>
+                <div style={S.listCardLeft}>
+                  <div style={S.listCardPills}>
+                    <span style={S.listCardPill('blue')}>{m.day}</span>
+                    <span style={S.listCardPill('gray')}>{mealLabel}</span>
+                  </div>
+                  <div style={S.listCardDish}>{m.data?.dish_name || m.type}</div>
+                </div>
+                <div style={{display:'flex', alignItems:'center', gap:'0.5rem'}}>
+                  <span style={S.listCardStatus(isApproved ? 'APPROVED' : isCorrected ? 'corrected' : 'pending')}>
+                    {isApproved ? '✅ Approved' : isCorrected ? '✏️ Corrected' : 'Pending →'}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // DETAIL VIEW — meal selected
   const meal = meals[currentIndex];
   if (!meal) return null;
 
@@ -450,17 +588,11 @@ export default function ReviewPage() {
         </div>
       </div>
 
-      {/* PROGRESS */}
-      <div style={S.progress}>
-        {meals.map((m, i) => {
-          const key = `${m.day}_${m.type}`;
-          const corrected = corrections[key] && corrections[key] !== 'APPROVED';
-          return <div key={i} style={S.progressDot(i, corrected)} title={`${m.day} ${m.type}`}>{i + 1}</div>;
-        })}
-        <span style={{marginLeft:'auto',fontSize:'0.78rem',color:'#9ca3af'}}>{currentIndex + 1} / {meals.length}</span>
-      </div>
-
       <div style={S.content}>
+        {/* BACK BUTTON */}
+        <button style={S.backBtn} onClick={() => setCurrentIndex(null)}>
+          ← Back to overview
+        </button>
         <div style={S.card}>
 
           {/* PILLS — Monday | Lunch — above the dish box, inside the card but above the border */}
@@ -699,7 +831,7 @@ export default function ReviewPage() {
             />
             <div style={S.btnRow}>
               <button style={S.btnApprove} onClick={handleApprove}>✅ Approve</button>
-              <button style={S.btnCorrect(!!correctionText.trim())} onClick={handleCorrect} disabled={!correctionText.trim()}>✏️ Correct & Next</button>
+              <button style={S.btnCorrect(!!correctionText.trim())} onClick={handleCorrect} disabled={!correctionText.trim()}>✏️ Correct & Save</button>
             </div>
           </div>
 
