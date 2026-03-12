@@ -51,6 +51,10 @@ export default function ReviewPage() {
       let nd = null;
       try { nd = typeof rec.fields.nutrition_data === 'string' ? JSON.parse(rec.fields.nutrition_data) : rec.fields.nutrition_data; } catch(e) {}
       setNutritionData(nd);
+      // Restore any corrections already saved (e.g. by other reviewer)
+      let savedCorrections = {};
+      try { savedCorrections = rec.fields.corrections ? JSON.parse(rec.fields.corrections) : {}; } catch(e) {}
+      setCorrections(savedCorrections);
       const mealList = [];
       const mealData = calc.meals || {};
       Object.entries(mealData).forEach(([day, dayMeals]) => {
@@ -58,8 +62,21 @@ export default function ReviewPage() {
         if (dayMeals.Zvieri) mealList.push({ day, type: 'Zvieri', data: dayMeals.Zvieri });
       });
       setMeals(mealList);
+      // If already fully approved, go straight to done
+      if (rec.fields.status === 'APPROVED') { setPhase('done'); return; }
       setPhase('review');
     } catch (e) { setPhase('error'); }
+  }
+
+  async function saveCorrectionsToAirtable(newCorrections, status) {
+    if (!airtableId) return;
+    try {
+      await fetch(`https://api.airtable.com/v0/${AIRTABLE_BASE}/${AIRTABLE_TABLE}/${airtableId}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${AIRTABLE_TOKEN}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: { corrections: JSON.stringify(newCorrections), ...(status ? { status } : {}) } })
+      });
+    } catch(e) { console.error('Failed to save to Airtable', e); }
   }
 
   function handleApprove() {
@@ -73,10 +90,10 @@ export default function ReviewPage() {
       finalizeAndSave(hadCorrections);
       return;
     }
-    // Advance to next unreviewed meal
+    saveCorrectionsToAirtable(newCorrections, null);
     const nextIndex = meals.findIndex((m, i) => i > currentIndex && !newCorrections[`${m.day}_${m.type}`]);
     if (nextIndex !== -1) { setCurrentIndex(nextIndex); setTableOpen(false); }
-    else setCurrentIndex(null); // all remaining already reviewed, go to overview
+    else setCurrentIndex(null);
   }
 
   function handleCorrect() {
@@ -87,6 +104,7 @@ export default function ReviewPage() {
     setCorrectionText('');
     const allDone = meals.every(m => newCorrections[`${m.day}_${m.type}`]);
     if (allDone) { finalizeAndSave(true); return; }
+    saveCorrectionsToAirtable(newCorrections, null);
     const nextIndex = meals.findIndex((m, i) => i > currentIndex && !newCorrections[`${m.day}_${m.type}`]);
     if (nextIndex !== -1) { setCurrentIndex(nextIndex); setTableOpen(false); }
     else setCurrentIndex(null);
@@ -95,11 +113,7 @@ export default function ReviewPage() {
   async function finalizeAndSave(hadCorrections) {
     setPhase('saving');
     try {
-      await fetch(`https://api.airtable.com/v0/${AIRTABLE_BASE}/${AIRTABLE_TABLE}/${airtableId}`, {
-        method: 'PATCH',
-        headers: { Authorization: `Bearer ${AIRTABLE_TOKEN}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fields: { status: hadCorrections ? 'CORRECTED' : 'REVIEWED', corrections: JSON.stringify(corrections) } })
-      });
+      await saveCorrectionsToAirtable(corrections, hadCorrections ? 'CORRECTED' : 'REVIEWED');
       setPhase('done');
     } catch (e) { setPhase('error'); }
   }
