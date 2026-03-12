@@ -134,7 +134,7 @@ export default function ReviewPage() {
       await fetch(`https://domvf.app.n8n.cloud/webhook/0f7f3c51-b24c-48c6-b634-c9e0c93a36dd`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ runId, kitaMessage: msg, airtableId })
+        body: JSON.stringify({ runId, kitaMessage: msg, airtableId, week: record?.week })
       });
       await fetch(`https://api.airtable.com/v0/${AIRTABLE_BASE}/${AIRTABLE_TABLE}/${airtableId}`, {
         method: 'PATCH',
