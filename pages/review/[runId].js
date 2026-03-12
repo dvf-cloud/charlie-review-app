@@ -67,13 +67,16 @@ export default function ReviewPage() {
     const newCorrections = { ...corrections, [`${meal.day}_${meal.type}`]: 'APPROVED' };
     setCorrections(newCorrections);
     setCorrectionText('');
-    setCurrentIndex(null); // back to list
-    // Check if all meals reviewed
     const allDone = meals.every(m => newCorrections[`${m.day}_${m.type}`]);
     if (allDone) {
       const hadCorrections = Object.values(newCorrections).some(v => v !== 'APPROVED');
       finalizeAndSave(hadCorrections);
+      return;
     }
+    // Advance to next unreviewed meal
+    const nextIndex = meals.findIndex((m, i) => i > currentIndex && !newCorrections[`${m.day}_${m.type}`]);
+    if (nextIndex !== -1) { setCurrentIndex(nextIndex); setTableOpen(false); }
+    else setCurrentIndex(null); // all remaining already reviewed, go to overview
   }
 
   function handleCorrect() {
@@ -82,9 +85,11 @@ export default function ReviewPage() {
     const newCorrections = { ...corrections, [`${meal.day}_${meal.type}`]: correctionText };
     setCorrections(newCorrections);
     setCorrectionText('');
-    setCurrentIndex(null); // back to list
     const allDone = meals.every(m => newCorrections[`${m.day}_${m.type}`]);
-    if (allDone) finalizeAndSave(true);
+    if (allDone) { finalizeAndSave(true); return; }
+    const nextIndex = meals.findIndex((m, i) => i > currentIndex && !newCorrections[`${m.day}_${m.type}`]);
+    if (nextIndex !== -1) { setCurrentIndex(nextIndex); setTableOpen(false); }
+    else setCurrentIndex(null);
   }
 
   async function finalizeAndSave(hadCorrections) {
@@ -325,6 +330,14 @@ export default function ReviewPage() {
 
   // LIST VIEW — no meal selected
   if (currentIndex === null) {
+    // Group meals by day
+    const days = [];
+    const dayMap = {};
+    meals.forEach((m, i) => {
+      if (!dayMap[m.day]) { dayMap[m.day] = []; days.push(m.day); }
+      dayMap[m.day].push({ ...m, index: i });
+    });
+
     return (
       <div style={S.page}>
         <div style={S.header}>
@@ -346,27 +359,38 @@ export default function ReviewPage() {
               </button>
             </div>
           )}
-          {meals.map((m, i) => {
-            const key = `${m.day}_${m.type}`;
-            const status = corrections[key];
-            const isApproved = status === 'APPROVED';
-            const isCorrected = status && status !== 'APPROVED';
-            const mealLabel = m.type === 'Zmittag' ? '🍽️ Lunch' : '🍎 Snack';
+          {days.map(day => {
+            const dayMeals = dayMap[day];
+            const dayReviewed = dayMeals.filter(m => corrections[`${m.day}_${m.type}`]).length;
             return (
-              <div key={i} style={{...S.listCard, borderColor: isApproved ? '#86efac' : isCorrected ? '#fdba74' : BORDER}}
-                onClick={() => { setCurrentIndex(i); setCorrectionText(''); setTableOpen(false); }}>
-                <div style={S.listCardLeft}>
-                  <div style={S.listCardPills}>
-                    <span style={S.listCardPill('blue')}>{m.day}</span>
-                    <span style={S.listCardPill('gray')}>{mealLabel}</span>
-                  </div>
-                  <div style={S.listCardDish}>{m.data?.dish_name || m.type}</div>
-                </div>
-                <div style={{display:'flex', alignItems:'center', gap:'0.5rem'}}>
-                  <span style={S.listCardStatus(isApproved ? 'APPROVED' : isCorrected ? 'corrected' : 'pending')}>
-                    {isApproved ? '✅ Approved' : isCorrected ? '✏️ Corrected' : 'Pending →'}
+              <div key={day} style={{...S.card, marginBottom:'1rem'}}>
+                <div style={{padding:'0.75rem 1.2rem', borderBottom:`1px solid ${BORDER}`, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                  <span style={{fontWeight:700, fontSize:'0.9rem', color:'#1f2937'}}>{day}</span>
+                  <span style={{fontSize:'0.75rem', color: dayReviewed === dayMeals.length ? '#15803d' : GRAY_MID, fontWeight:600}}>
+                    {dayReviewed} of {dayMeals.length} reviewed
                   </span>
                 </div>
+                {dayMeals.map((m, i) => {
+                  const key = `${m.day}_${m.type}`;
+                  const status = corrections[key];
+                  const isApproved = status === 'APPROVED';
+                  const isCorrected = status && status !== 'APPROVED';
+                  const mealLabel = m.type === 'Zmittag' ? '🍽️ Lunch' : '🍎 Snack';
+                  const isLast = i === dayMeals.length - 1;
+                  return (
+                    <div key={i}
+                      style={{padding:'0.85rem 1.2rem', display:'flex', alignItems:'center', justifyContent:'space-between', cursor:'pointer', borderBottom: isLast ? 'none' : `1px solid ${BORDER}`, background: isApproved ? '#fafff9' : isCorrected ? '#fffbf5' : 'white'}}
+                      onClick={() => { setCurrentIndex(m.index); setCorrectionText(''); setTableOpen(false); }}>
+                      <div style={{display:'flex', flexDirection:'column', gap:'0.2rem'}}>
+                        <span style={{fontSize:'0.75rem', color:GRAY_MID, fontWeight:600}}>{mealLabel}</span>
+                        <span style={{fontSize:'0.88rem', fontWeight:600, color:'#1f2937'}}>{m.data?.dish_name || m.type}</span>
+                      </div>
+                      <span style={S.listCardStatus(isApproved ? 'APPROVED' : isCorrected ? 'corrected' : 'pending')}>
+                        {isApproved ? '✅ Approved' : isCorrected ? '✏️ Corrected' : 'Review →'}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             );
           })}
