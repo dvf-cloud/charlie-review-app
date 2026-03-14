@@ -131,7 +131,7 @@ export default function ReviewPage() {
     setKitaSending(true);
     try {
       navigator.clipboard.writeText(msg);
-      await fetch(`https://domvf.app.n8n.cloud/webhook/0f7f3c51-b24c-48c6-b634-c9e0c93a36dd`, {
+      await fetch(`/api/notify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ runId, kitaMessage: msg, airtableId, week: record?.week })
