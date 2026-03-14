@@ -274,7 +274,7 @@ export default function ReviewPage() {
     actions: { padding: '1.2rem 1.8rem', background: '#fafafa', borderTop: `1px solid ${BORDER}` },
     correctionInput: { width: '100%', padding: '0.75rem 1rem', borderRadius: 10, border: `2px solid ${BORDER}`, fontSize: '0.88rem', fontFamily: 'inherit', resize: 'vertical', marginBottom: '0.9rem', outline: 'none', boxSizing: 'border-box', color: GRAY_DARK },
     btnRow: { display: 'flex', gap: '0.75rem' },
-    btnApprove: { flex: 1, padding: '0.85rem', borderRadius: 11, border: '2px solid #16a34a', background: '#f0fdf4', color: '#15803d', fontSize: '0.95rem', fontWeight: 600, cursor: 'pointer' },
+    btnApprove: { flex: 1, padding: '0.85rem', borderRadius: 11, border: `2px solid ${BORDER}`, background: 'white', color: GRAY_DARK, fontSize: '0.95rem', fontWeight: 600, cursor: 'pointer' },
     btnCorrect: (active) => ({ flex: 1, padding: '0.85rem', borderRadius: 11, border: `2px solid ${active ? '#f97316' : BORDER}`, background: active ? '#fff7ed' : 'white', color: active ? '#c2410c' : '#9ca3af', fontSize: '0.95rem', fontWeight: 600, cursor: active ? 'pointer' : 'default', transition: 'all 0.2s' }),
     doneCard: { background: 'white', borderRadius: 16, padding: '2.5rem 2rem', textAlign: 'center', boxShadow: '0 2px 16px rgba(0,0,0,0.07)', border: `1px solid ${BORDER}` },
     kitaMessage: { background: '#f0fdf4', border: '2px solid #86efac', borderRadius: 12, padding: '1.2rem', textAlign: 'left', fontSize: '0.88rem', lineHeight: 1.65, whiteSpace: 'pre-wrap', marginTop: '1.5rem', color: '#166534' },
@@ -435,8 +435,8 @@ export default function ReviewPage() {
   const mealTypeLabel = meal.type === 'Zmittag' ? 'Lunch' : 'Afternoon Snack';
   const mealTypeEmoji = meal.type === 'Zmittag' ? '🍽️' : '🍎';
   const modeRaw = mealData?.mode_applied || '';
-  const isModeA = modeRaw.toLowerCase().includes('mode a');
-  const isModeB = modeRaw.toLowerCase().includes('mode b');
+  const isModeA = modeRaw.toLowerCase().includes('mode a') || modeRaw.toLowerCase().includes('blended') || modeRaw.toLowerCase().includes('override') || modeRaw.toLowerCase().includes('carb target');
+  const isModeB = modeRaw.toLowerCase().includes('mode b') || modeRaw.toLowerCase().includes('baked') || modeRaw.toLowerCase().includes('weight');
   const parsed = parseHerleitung(herleitung);
   // Free foods — source: University Hospital Zurich Austauschtabelle
   // Vegetables with counted carbs: Erbsen, Mais, Kefen, Maiskolben, Randen — these are NOT in this list
