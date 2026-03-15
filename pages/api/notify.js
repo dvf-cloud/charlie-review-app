@@ -11,8 +11,10 @@ export default async function handler(req, res) {
       }
     );
     const text = await response.text();
-    res.status(200).json({ ok: true, n8n: text });
+    console.log('n8n response status:', response.status, 'body:', text);
+    res.status(200).json({ ok: true, n8n_status: response.status, n8n_body: text });
   } catch (e) {
+    console.error('notify error:', e.message);
     res.status(500).json({ ok: false, error: e.message });
   }
 }
